@@ -135,8 +135,25 @@ function anytimeTdProb(usage, defAllowed, teamImplied, ctx = {}) {
   if (usage.recentTdGames >= 2) p *= 1.12;
   else if (usage.recentTdGames === 0 && usage.games >= 3) p *= 0.94;
 
-  // Smart floor/cap
-  return Math.max(1.5, Math.min(65, p * 100));
+  // ── FLOOR/CEILING ────────────────────────────────────────────────────────────
+  // A hard Math.min(65, ...) clip caused multiple legitimately-different elite players
+  // (different positions, different games, different touch counts) to tie at the exact
+  // same 65% value — flattening the ranking exactly where it matters most: the best plays.
+  // Below 45%, values pass through unchanged. Above 45%, they're squashed asymptotically
+  // toward the 65% ceiling instead of clipped to it, so higher raw values always produce
+  // a (slightly) higher final number — no more exact ties at the top.
+  const raw = p * 100;
+  const SOFT_THRESHOLD = 45;
+  const CEILING = 65;
+  let final;
+  if (raw <= SOFT_THRESHOLD) {
+    final = raw;
+  } else {
+    const excess = raw - SOFT_THRESHOLD;
+    const maxExcess = CEILING - SOFT_THRESHOLD;
+    final = SOFT_THRESHOLD + maxExcess * (1 - Math.exp(-excess / maxExcess));
+  }
+  return Math.max(1.5, final);
 }
 
 // ── Wilson-score-style confidence tier, anchored on touches instead of PA ──
