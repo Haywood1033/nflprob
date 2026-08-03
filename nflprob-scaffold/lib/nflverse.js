@@ -1,27 +1,34 @@
 // lib/nflverse.js — pulls team-level efficiency data from nflverse-data releases (GitHub, free, no auth)
-// nflverse publishes weekly-updated CSVs to github.com/nflverse/nflverse-data/releases
-// This gives us EPA/play, pace, red zone rates — everything the team-level model needs
-// without touching a paid odds API.
+//
+// VERIFIED against the live file (curl'd and inspected headers directly):
+// - Correct URL is under the release *download* path, NOT raw.githubusercontent.com —
+//   this repo doesn't store data in its git tree, only as release assets.
+// - Release tag is "stats_team" (not "stats_team_week" — that was my original guess, it was wrong).
+// - The file is ONE ROW PER TEAM PER GAME, offense-only. There is no separate "defense EPA
+//   allowed" column and no red-zone-TD-rate column. To get defense-allowed EPA for team X,
+//   look up the OPPONENT's row for the same game_id — their offensive output against X
+//   IS what X's defense allowed. Red zone rate isn't available in this file at all (would need
+//   play-by-play with yardline_100); dropped from the model until we pull PBP separately.
+// - Team abbreviations here are nflverse's own (LA, WAS) — NOT ESPN's (LAR, WSH). Must
+//   normalize before matching against schedule.js output.
 
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour — data updates ~daily during season
-let cache = { season: null, teamWeek: null, timestamp: null };
+let cache = { season: null, rows: null, timestamp: null };
 
-// Weekly team-level box-score-derived stats (one row per team per week)
-// Release: nflverse-data "stats_team" — columns include epa/play, pass/rush splits, plays, etc.
 const TEAM_WEEK_URL = (season) =>
-  `https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/stats_team_week/stats_team_week_${season}.csv`;
+  `https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_${season}.csv`;
 
-// Play-by-play derived EPA (heavier file, weekly refresh) — used for red-zone and pace detail
-const PBP_URL = (season) =>
-  `https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_${season}.csv.gz`;
+// nflverse abbr differs from ESPN abbr for these two teams
+const NFLVERSE_ABBR_FIX = { LAR: 'LA', WSH: 'WAS' };
+function toNflverseAbbr(espnAbbr) {
+  return NFLVERSE_ABBR_FIX[espnAbbr] || espnAbbr;
+}
 
 function parseCSV(text) {
   const lines = text.trim().split('\n');
   const headers = lines[0].split(',');
   return lines.slice(1).map(line => {
-    // NOTE: naive split — nflverse CSVs rarely have embedded commas in these columns,
-    // but swap in a proper CSV parser (papaparse) once this runs for real.
-    const cells = line.split(',');
+    const cells = line.split(','); // fine here — no embedded commas in this file's columns
     const row = {};
     headers.forEach((h, i) => row[h.trim()] = cells[i]);
     return row;
@@ -30,40 +37,81 @@ function parseCSV(text) {
 
 async function fetchTeamWeekStats(season) {
   const age = cache.timestamp ? Date.now() - cache.timestamp : Infinity;
-  if (cache.season === season && age < CACHE_TTL && cache.teamWeek) return cache.teamWeek;
+  if (cache.season === season && age < CACHE_TTL && cache.rows) return cache.rows;
 
-  try {
-    const r = await fetch(TEAM_WEEK_URL(season), { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (!r.ok) return null;
-    const text = await r.text();
-    const rows = parseCSV(text);
-    cache = { season, teamWeek: rows, timestamp: Date.now() };
-    return rows;
-  } catch (e) {
-    console.warn('nflverse team-week fetch failed:', e.message);
-    return null;
+  // Current season's file won't exist until games have actually been played;
+  // fall back to prior season so the model has *something* pre-week-1.
+  for (const trySeason of [season, season - 1]) {
+    try {
+      const r = await fetch(TEAM_WEEK_URL(trySeason), { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!r.ok) continue;
+      const text = await r.text();
+      const rows = parseCSV(text);
+      cache = { season, rows, timestamp: Date.now(), sourceSeason: trySeason };
+      return rows;
+    } catch (e) {
+      console.warn(`nflverse team-week fetch failed for ${trySeason}:`, e.message);
+    }
   }
+  return null;
 }
 
-// Aggregate last-N-weeks EPA/play (offense + defense allowed) per team, weighted toward recent games
-function computeTeamEfficiency(rows, team, throughWeek, lastN = 5) {
+// Build a game_id → { team → offensive row } index so defense-allowed can be looked up
+function indexByGame(rows) {
+  const byGame = {};
+  for (const r of rows) {
+    if (!byGame[r.game_id]) byGame[r.game_id] = {};
+    byGame[r.game_id][r.team] = r;
+  }
+  return byGame;
+}
+
+function offEpaPerPlay(row) {
+  const plays = (parseFloat(row.attempts) || 0) + (parseFloat(row.carries) || 0);
+  if (!plays) return null;
+  const epa = (parseFloat(row.passing_epa) || 0) + (parseFloat(row.rushing_epa) || 0);
+  return { epaPlay: epa / plays, plays };
+}
+
+// Aggregate last-N-games EPA/play (offense + defense allowed) per team, weighted toward recent games
+function computeTeamEfficiency(rows, espnAbbr, throughWeek, lastN = 5) {
+  if (!rows?.length) return null;
+  const team = toNflverseAbbr(espnAbbr);
+  const byGame = indexByGame(rows);
+
+  // Week 1 (throughWeek=0) with no current-season games yet: fall back to the tail end
+  // of whatever season is in `rows` (typically last season, per fetchTeamWeekStats fallback)
+  // instead of filtering to week<=0, which would match nothing.
+  const weekFilter = throughWeek < 1 ? () => true : (r) => Number(r.week) <= throughWeek;
+
   const teamRows = rows
-    .filter(r => r.team === team && Number(r.week) <= throughWeek)
+    .filter(r => r.team === team && r.season_type === 'REG' && weekFilter(r))
     .sort((a, b) => Number(b.week) - Number(a.week))
     .slice(0, lastN);
 
   if (!teamRows.length) return null;
 
-  const avg = (key) => teamRows.reduce((s, r) => s + (parseFloat(r[key]) || 0), 0) / teamRows.length;
+  let sumEpaOff = 0, sumEpaDefAllowed = 0, sumPlays = 0, games = 0;
+  for (const r of teamRows) {
+    const off = offEpaPerPlay(r);
+    if (!off) continue;
+    const oppRow = byGame[r.game_id]?.[r.opponent_team];
+    const oppOff = oppRow ? offEpaPerPlay(oppRow) : null;
+
+    sumEpaOff += off.epaPlay;
+    sumPlays += off.plays;
+    if (oppOff) sumEpaDefAllowed += oppOff.epaPlay;
+    games++;
+  }
+  if (!games) return null;
 
   return {
-    games: teamRows.length,
-    epaPlayOff: avg('offense_epa_play') || avg('off_epa_per_play'),
-    epaPlayDef: avg('defense_epa_play') || avg('def_epa_per_play'),
-    playsPerGame: avg('plays_offense') || avg('off_plays'),
-    redZoneTdRate: avg('rz_td_pct'),
-    passRate: avg('pass_rate'),
+    games,
+    epaPlayOff: sumEpaOff / games,
+    epaPlayDef: sumEpaDefAllowed / games, // this team's defense: EPA/play they allowed
+    playsPerGame: sumPlays / games,
+    redZoneTdRate: null, // not available in this data source — needs play-by-play, follow-up task
   };
 }
 
-module.exports = { fetchTeamWeekStats, computeTeamEfficiency, TEAM_WEEK_URL, PBP_URL };
+module.exports = { fetchTeamWeekStats, computeTeamEfficiency, TEAM_WEEK_URL, toNflverseAbbr };
