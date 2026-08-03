@@ -34,6 +34,16 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .badge-lowscore{font-size:9px;font-family:var(--mono);padding:2px 6px;border-radius:3px;background:rgba(96,165,250,.1);color:var(--blue);border:1px solid rgba(96,165,250,.25)}
 .empty{text-align:center;padding:40px 20px;color:var(--t3)}
 .empty h3{font-size:15px;color:var(--t2);margin-bottom:8px}
+
+.td-table{width:100%;border-collapse:collapse;font-size:13px}
+.td-table thead th{text-align:left;padding:9px 12px;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.08em;text-transform:uppercase;border-bottom:0.5px solid var(--bd);background:var(--bg2)}
+.td-table tbody td{padding:10px 12px;border-bottom:0.5px solid var(--bd)}
+.td-table tbody tr:hover{background:var(--bg2)}
+.td-name{font-weight:600;color:var(--t1)}
+.td-pos{font-family:var(--mono);font-size:11px;color:var(--t3)}
+.td-team{font-size:12px;color:var(--t2)}
+.td-prob{font-family:var(--mono);font-weight:700;color:var(--teal)}
+.td-touch{font-family:var(--mono);font-size:12px;color:var(--t3)}
 </style>
 </head>
 <body>
@@ -61,17 +71,30 @@ const params = new URLSearchParams(location.search);
 const week = params.get('week') || 1;
 document.getElementById('weekLabel').textContent = 'Week ' + week;
 
+let currentTab = 'team';
+
 async function loadTeamModel() {
   try {
     const r = await fetch('/api/team-model?week=' + week);
     const d = await r.json();
-    render(d);
+    renderTeamModel(d);
   } catch (e) {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
   }
 }
 
-function render(d) {
+async function loadTdProps() {
+  document.getElementById('content').innerHTML = '<div class="empty"><h3>Loading Anytime TD model…</h3></div>';
+  try {
+    const r = await fetch('/api/props?week=' + week);
+    const d = await r.json();
+    renderTdProps(d);
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
+  }
+}
+
+function renderTeamModel(d) {
   document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
   const games = d.games || [];
   if (!games.length) {
@@ -99,10 +122,46 @@ function render(d) {
   }).join('');
 }
 
+function renderTdProps(d) {
+  document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
+  const players = d.players || [];
+  if (!players.length) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3><div>' + (d.error || '') + '</div></div>';
+    return;
+  }
+  const rows = players.map(p => {
+    const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
+    return `<tr>
+      <td class="td-name">${p.name}</td>
+      <td class="td-pos">${p.position}</td>
+      <td class="td-team">${p.team} vs ${p.opponent}</td>
+      <td class="td-prob">${p.prob}%</td>
+      <td class="td-touch">${p.touches}</td>
+      <td>${badgeHtml}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <table class="td-table">
+      <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th>Anytime TD%</th><th>Touches (L5)</th><th>Signal</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
+      Player pool is usage-based (top targets/carries over last 5 games), not yet a confirmed
+      active roster for this week — injury/inactive filtering isn't wired up yet.
+    </div>
+  `;
+}
+
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
   t.classList.add('active');
-  // Player prop tabs (td/rush/rec/pass) wire up once the props layer is built — step 2-3 of build order
+  currentTab = t.dataset.tab;
+  if (currentTab === 'team') loadTeamModel();
+  else if (currentTab === 'td') loadTdProps();
+  else {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>Not built yet</h3><div>This tab is next up in the build order.</div></div>';
+  }
 }));
 
 loadTeamModel();
