@@ -2,6 +2,7 @@
   "outputDirectory": ".",
   "functions": {
     "api/team-model.js": { "maxDuration": 60 },
+    "api/props.js":      { "maxDuration": 60 },
     "api/history.js":    { "maxDuration": 30 }
   },
   "rewrites": [
