@@ -1,13 +1,11 @@
 {
   "outputDirectory": ".",
   "functions": {
-    "api/slate.js":      { "maxDuration": 30 },
     "api/team-model.js": { "maxDuration": 60 },
-    "api/props.js":      { "maxDuration": 90 },
-    "api/splits.js":     { "maxDuration": 90 },
     "api/history.js":    { "maxDuration": 30 }
   },
   "rewrites": [
+    { "source": "/", "destination": "/app.html" },
     { "source": "/app", "destination": "/app.html" }
   ]
 }
