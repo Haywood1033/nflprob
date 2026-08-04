@@ -111,6 +111,7 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
     <div class="tab" data-tab="rush">Rushing Yds</div>
     <div class="tab" data-tab="rec">Receiving Yds</div>
     <div class="tab" data-tab="pass">Passing Yds</div>
+    <div class="tab" data-tab="season">Season Projections</div>
     <div class="tab" data-tab="accuracy">Accuracy</div>
   </div>
 
@@ -583,6 +584,112 @@ function renderPassProps(d) {
   attachFilterHandlers('pass', renderPassProps);
 }
 
+let seasonCategory = 'wins';
+const seasonRawData = { wins: null, td: null, rush: null, rec: null, pass: null };
+
+async function loadSeasonCategory(category) {
+  seasonCategory = category;
+  if (seasonRawData[category]) {
+    renderSeasonProjections(seasonRawData[category]);
+    return;
+  }
+  document.getElementById('content').innerHTML = renderSeasonPills(category) +
+    '<div class="empty"><h3>Loading season projections…</h3><div style="font-size:11px;margin-top:6px">This pulls a full season schedule for all 32 teams — can take a bit longer than the weekly tabs.</div></div>';
+  try {
+    const r = await fetch('/api/season?category=' + category);
+    const d = await r.json();
+    seasonRawData[category] = d;
+    renderSeasonProjections(d);
+  } catch (e) {
+    document.getElementById('content').innerHTML = renderSeasonPills(category) + '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
+  }
+}
+
+function renderSeasonPills(active) {
+  const labels = { wins: 'Team Wins', td: 'TD Totals', rush: 'Rushing Yds', rec: 'Receiving Yds', pass: 'Passing Yds' };
+  return `<div class="filter-bar">
+    <div class="pos-pills">
+      ${Object.entries(labels).map(([key, label]) =>
+        `<div class="pos-pill${active === key ? ' on' : ''}" data-season-cat="${key}">${label}</div>`
+      ).join('')}
+    </div>
+  </div>`;
+}
+
+function renderSeasonProjections(d) {
+  document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
+  const pillsHTML = renderSeasonPills(d.category);
+
+  if (d.error) {
+    document.getElementById('content').innerHTML = pillsHTML + '<div class="empty"><h3>' + d.error + '</h3></div>';
+    attachSeasonPillHandlers();
+    return;
+  }
+
+  const results = d.results || [];
+  if (!results.length) {
+    document.getElementById('content').innerHTML = pillsHTML + '<div class="empty"><h3>No results found</h3></div>';
+    attachSeasonPillHandlers();
+    return;
+  }
+
+  let table;
+  if (d.category === 'wins') {
+    const rows = results.map((r, i) => `<tr>
+      <td class="td-name">${i + 1}. ${r.team}</td>
+      <td class="td-touch">${r.actualWins}-${r.actualLosses}</td>
+      <td class="td-touch">${r.gamesRemaining}</td>
+      <td class="td-prob">${r.projectedTotalWins}</td>
+    </tr>`).join('');
+    table = `<table class="td-table">
+      <thead><tr><th>Team</th><th>Record So Far</th><th>Games Left</th><th>Projected Total Wins</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  } else if (d.category === 'td') {
+    const rows = results.map((r, i) => `<tr>
+      <td class="td-name">${i + 1}. ${r.name}</td>
+      <td class="td-pos">${r.position}</td>
+      <td class="td-team">${r.team}</td>
+      <td class="td-touch">${r.gamesRemaining}</td>
+      <td class="td-prob">${r.projectedSeasonTds}</td>
+    </tr>`).join('');
+    table = `<table class="td-table">
+      <thead><tr><th>Player</th><th>Pos</th><th>Team</th><th>Games Left</th><th>Projected Season TDs</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  } else {
+    const statLabel = { rush: 'Rushing', rec: 'Receiving', pass: 'Passing' }[d.category];
+    const rows = results.map((r, i) => `<tr>
+      <td class="td-name">${i + 1}. ${r.name}</td>
+      <td class="td-team">${r.team}</td>
+      <td class="td-touch">${r.gamesRemaining}</td>
+      <td class="td-prob">${r.projectedSeasonYards.toLocaleString()}</td>
+    </tr>`).join('');
+    table = `<table class="td-table">
+      <thead><tr><th>Player</th><th>Team</th><th>Games Left</th><th>Projected ${statLabel} Yards</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  document.getElementById('content').innerHTML = pillsHTML + table + `
+    <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
+      Season total = sum of each team's real remaining schedule, run through the same
+      per-game models used in the weekly tabs (opponent-specific, home/road aware) — not a
+      separately-invented "strength of schedule" number. Framework/plumbing pass, not yet
+      calibrated: early-season projections can amplify small-sample noise from the current
+      recent-form window across all 17 games, so yardage leaders in particular may look
+      inflated until real 2026 data accumulates and the per-game models firm up.
+    </div>
+  `;
+  attachSeasonPillHandlers();
+}
+
+function attachSeasonPillHandlers() {
+  document.querySelectorAll('[data-season-cat]').forEach(pill => {
+    pill.addEventListener('click', () => loadSeasonCategory(pill.dataset.seasonCat));
+  });
+}
+
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
   t.classList.add('active');
@@ -593,6 +700,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   else if (currentTab === 'rush') loadRushProps();
   else if (currentTab === 'rec') loadRecProps();
   else if (currentTab === 'pass') loadPassProps();
+  else if (currentTab === 'season') loadSeasonCategory(seasonCategory);
   else {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>Not built yet</h3><div>This tab is next up in the build order.</div></div>';
   }
