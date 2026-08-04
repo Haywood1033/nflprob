@@ -64,7 +64,7 @@ module.exports = async function handler(req, res) {
     for (const t of teamsInGame) {
       const pool = topRushersForTeam(playerRows, t.abbr, throughWeek);
       for (const candidate of pool) {
-        const usage = computeRushUsage(playerRows, candidate.name, throughWeek);
+        const usage = computeRushUsage(playerRows, candidate.name, toNflverseAbbr(t.abbr), throughWeek);
         if (!usage) continue;
         const defAllowed = computeRushDefenseAllowed(teamRows, t.oppAbbr, throughWeek, 5, toNflverseAbbr);
         const proj = projectRushYards(usage, defAllowed, t.implied);
