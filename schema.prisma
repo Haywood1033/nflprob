@@ -1,0 +1,23 @@
+// schema.prisma (root of repo)
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "./generated/prisma-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model WeeklyPrediction {
+  id           Int      @id @default(autoincrement())
+  week         String   @unique // e.g. "2026-W01"
+  predictions  Json     // player prop predictions (TD/rush/rec/pass yds)
+  teamModel    Json?    // win prob + implied points per game
+  signalLock   Json?    // frozen signal state at first load, pre-kickoff
+  resultsAdded Boolean  @default(false)
+  summary      String?
+  savedAt      DateTime @default(now())
+  fetchedAt    DateTime?
+}

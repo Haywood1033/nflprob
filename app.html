@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NFLProb</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── DESIGN TOKENS — copied 1:1 from HR engine for brand continuity ── */
+:root{--bg:#0a0e1a;--bg2:#0e1422;--bg3:#141e2e;--bd:rgba(255,255,255,0.10);--bd2:rgba(255,255,255,0.16);--t1:rgba(255,255,255,0.92);--t2:rgba(255,255,255,0.45);--t3:rgba(255,255,255,0.25);--teal:#2dd4bf;--green:#4ade80;--amber:#f59e0b;--red:#f87171;--purple:#a78bfa;--blue:#60a5fa;--mono:'Space Mono',monospace;--sans:'DM Sans',system-ui,sans-serif;--r:8px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px;min-height:100vh;overflow-x:hidden}
+
+.hdr{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:0.5px solid var(--bd);background:var(--bg);position:sticky;top:0;z-index:100}
+.logo{font-family:var(--mono);font-size:15px;font-weight:500;color:var(--t1);letter-spacing:-0.3px}
+.hdr-week{font-family:var(--mono);font-size:11px;color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.06);border:0.5px solid rgba(255,255,255,0.18);padding:4px 10px;border-radius:20px;letter-spacing:0.02em}
+.status{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t3);margin-left:auto;font-family:var(--mono)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
+.dot.live{background:var(--green);box-shadow:0 0 6px var(--green)}
+
+.tabs{display:flex;gap:6px;padding:10px 18px;border-bottom:0.5px solid rgba(255,255,255,0.08);background:var(--bg);overflow-x:auto;scrollbar-width:none}
+.tab{padding:6px 14px;font-size:11px;font-weight:500;cursor:pointer;border-radius:20px;color:rgba(255,255,255,0.45);transition:all .15s;white-space:nowrap;border:0.5px solid transparent;font-family:var(--mono)}
+.tab.active{color:var(--green);background:rgba(74,222,128,0.1);border-color:rgba(74,222,128,0.25)}
+
+.wrap{padding:16px 20px}
+.gc{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:var(--r);overflow:hidden;margin-bottom:12px}
+.gch{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:0.5px solid var(--bd);background:var(--bg3)}
+.gctime{font-family:var(--mono);font-size:11px;color:var(--t3)}
+.gbody{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:18px;padding:16px 18px}
+.sl{font-size:11px;font-family:var(--mono);color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.sv{font-size:22px;font-family:var(--mono);font-weight:700;color:var(--t1);line-height:1.2}
+.sv.teal{color:var(--teal)}
+.badge-shootout{font-size:9px;font-family:var(--mono);padding:2px 6px;border-radius:3px;background:rgba(245,158,11,.1);color:var(--amber);border:1px solid rgba(245,158,11,.25)}
+.badge-lowscore{font-size:9px;font-family:var(--mono);padding:2px 6px;border-radius:3px;background:rgba(96,165,250,.1);color:var(--blue);border:1px solid rgba(96,165,250,.25)}
+.empty{text-align:center;padding:40px 20px;color:var(--t3)}
+.empty h3{font-size:15px;color:var(--t2);margin-bottom:8px}
+
+.td-table{width:100%;border-collapse:collapse;font-size:13px}
+.td-table thead th{text-align:left;padding:9px 12px;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.08em;text-transform:uppercase;border-bottom:0.5px solid var(--bd);background:var(--bg2)}
+.td-table tbody td{padding:10px 12px;border-bottom:0.5px solid var(--bd)}
+.td-table tbody tr:hover{background:var(--bg2)}
+.td-name{font-weight:600;color:var(--t1)}
+.td-pos{font-family:var(--mono);font-size:11px;color:var(--t3)}
+.td-team{font-size:12px;color:var(--t2)}
+.td-prob{font-family:var(--mono);font-weight:700;color:var(--teal)}
+.td-touch{font-family:var(--mono);font-size:12px;color:var(--t3)}
+
+/* ── THIS WEEK landing tab ── */
+.game-strip{display:flex;gap:10px;overflow-x:auto;padding-bottom:10px;margin-bottom:16px;scrollbar-width:thin}
+.gs-card{flex-shrink:0;width:180px;background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:8px;padding:10px 12px;cursor:pointer;transition:border-color .15s}
+.gs-card:hover{border-color:var(--teal)}
+.gs-card.high-scoring{border-color:rgba(245,158,11,.3)}
+.gs-status{font-size:9px;font-family:var(--mono);color:var(--t3);margin-bottom:6px}
+.gs-team{display:flex;justify-content:space-between;align-items:center;padding:2px 0}
+.gs-team-name{font-size:12px;font-weight:600;color:var(--t1)}
+.gs-team-td{font-size:10px;font-family:var(--mono);color:var(--teal)}
+.gs-divider{height:1px;background:var(--bd);margin:6px 0}
+.gs-total{display:flex;justify-content:space-between;align-items:baseline}
+.gs-total-pts{font-size:16px;font-weight:700;font-family:var(--mono)}
+.gs-meta{font-size:9px;font-family:var(--mono);color:var(--t3)}
+
+.today-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px}
+.today-kpi{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:8px;padding:12px 14px}
+.today-kpi-val{font-size:22px;font-weight:700;font-family:var(--mono);line-height:1.1}
+.today-kpi-lbl{font-size:10px;font-family:var(--mono);color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+
+.today-section{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:8px;margin-bottom:14px;overflow:hidden}
+.today-section-hdr{padding:12px 16px;border-bottom:0.5px solid var(--bd);font-size:10px;font-family:var(--mono);color:var(--t3);text-transform:uppercase;letter-spacing:.1em;display:flex;justify-content:space-between;align-items:center}
+.today-section-body{padding:14px 16px}
+.today-target{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--bg3)}
+.today-target:last-child{border-bottom:none}
+.today-target-rank{font-size:11px;font-family:var(--mono);color:var(--t3);width:18px;flex-shrink:0}
+.today-target-name{font-size:13px;font-weight:600;color:var(--t1)}
+.today-target-sub{font-size:10px;font-family:var(--mono);color:var(--t3);margin-top:1px}
+.today-target-prob{font-size:14px;font-family:var(--mono);font-weight:700;flex-shrink:0}
+.today-two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.today-two-col{grid-template-columns:1fr}}
+
+.best-play-card{background:linear-gradient(135deg,var(--bg2) 0%,var(--bg3) 100%);border:0.5px solid rgba(245,158,11,.25);border-radius:8px;padding:16px;margin-bottom:16px;cursor:pointer}
+.best-play-hdr{font-size:10px;font-family:var(--mono);color:var(--t3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px;display:flex;justify-content:space-between}
+.best-play-name{font-size:19px;font-weight:700;color:var(--t1);margin-bottom:2px}
+.best-play-sub{font-size:11px;font-family:var(--mono);color:var(--t3);margin-bottom:10px}
+.best-play-prob{font-size:38px;font-weight:700;font-family:var(--mono);color:var(--amber);line-height:1}
+.best-play-badge{font-size:10px;font-family:var(--mono);font-weight:700;padding:3px 9px;border-radius:4px;margin-top:8px;display:inline-block}
+.game-lean-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--bg3);font-size:12px}
+.game-lean-row:last-child{border-bottom:none}
+.game-lean-teams{font-weight:600;color:var(--t1)}
+.game-lean-meta{display:flex;gap:14px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--t3)}
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <div class="logo">NFLPROB</div>
+    <div class="hdr-week" id="weekLabel">Week —</div>
+    <div class="status"><span class="dot live"></span><span id="statusText">Loading…</span></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="week">This Week</div>
+    <div class="tab" data-tab="team">Team Model</div>
+    <div class="tab" data-tab="td">Anytime TD</div>
+    <div class="tab" data-tab="rush">Rushing Yds</div>
+    <div class="tab" data-tab="rec">Receiving Yds</div>
+    <div class="tab" data-tab="pass">Passing Yds</div>
+    <div class="tab" data-tab="accuracy">Accuracy</div>
+  </div>
+
+  <div class="wrap" id="content">
+    <div class="empty"><h3>Loading this week's slate…</h3></div>
+  </div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const week = params.get('week') || 1;
+document.getElementById('weekLabel').textContent = 'Week ' + week;
+
+let currentTab = 'week';
+
+async function loadThisWeek() {
+  document.getElementById('content').innerHTML = '<div class="empty"><h3>Loading this week\u2019s slate…</h3></div>';
+  try {
+    const [teamRes, propsRes] = await Promise.all([
+      fetch('/api/team-model?week=' + week).then(r => r.json()),
+      fetch('/api/props?week=' + week).then(r => r.json()),
+    ]);
+    renderThisWeek(teamRes, propsRes);
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
+  }
+}
+
+function renderThisWeek(teamData, propsData) {
+  document.getElementById('statusText').textContent = (teamData.cached || propsData.cached) ? 'Cached' : 'Live';
+  const games = teamData.games || [];
+  const players = propsData.players || [];
+
+  if (!games.length) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>No games found for week ' + (teamData.week || week) + '</h3></div>';
+    return;
+  }
+
+  // ── Game strip: top TD threat per team, implied total, shootout lean ──
+  const stripHTML = '<div class="game-strip">' + games.map(g => {
+    const m = g.model || {};
+    const awayTop = players.filter(p => p.team === g.awayTeam).sort((a,b)=>b.prob-a.prob)[0];
+    const homeTop = players.filter(p => p.team === g.homeTeam).sort((a,b)=>b.prob-a.prob)[0];
+    const isHigh = m.shootoutSignal;
+    const tc = m.shootoutSignal ? 'var(--amber)' : m.lowScoringSignal ? 'var(--blue)' : 'var(--t1)';
+    const lean = m.shootoutSignal ? '🔥 Shootout' : m.lowScoringSignal ? '🛡 Low Scoring' : '';
+    return `<div class="gs-card${isHigh ? ' high-scoring' : ''}">
+      <div class="gs-status">${lean}</div>
+      <div class="gs-team">
+        <span class="gs-team-name">${g.awayTeam}</span>
+        ${awayTop ? `<span class="gs-team-td">${awayTop.prob}% ${awayTop.name.split(' ').pop()}</span>` : ''}
+      </div>
+      <div class="gs-team">
+        <span class="gs-team-name">${g.homeTeam}</span>
+        ${homeTop ? `<span class="gs-team-td">${homeTop.prob}% ${homeTop.name.split(' ').pop()}</span>` : ''}
+      </div>
+      <div class="gs-divider"></div>
+      <div class="gs-total">
+        <span class="gs-total-pts" style="color:${tc}">${m.total ?? '—'}</span>
+        <span class="gs-meta">proj total</span>
+      </div>
+    </div>`;
+  }).join('') + '</div>';
+
+  // ── KPI row ──
+  const shootoutCount = games.filter(g => g.model?.shootoutSignal).length;
+  const eliteCount = players.filter(p => p.badge?.label.includes('Elite')).length;
+  const signalPlays = players.filter(p => p.signalCount >= 3);
+  const kpiHTML = `<div class="today-kpis">
+    <div class="today-kpi"><div class="today-kpi-val" style="color:var(--teal)">${games.length}</div><div class="today-kpi-lbl">Games</div></div>
+    <div class="today-kpi"><div class="today-kpi-val" style="color:var(--amber)">${shootoutCount}</div><div class="today-kpi-lbl">Shootouts</div></div>
+    <div class="today-kpi"><div class="today-kpi-val" style="color:var(--purple)">${signalPlays.length}</div><div class="today-kpi-lbl">Signal Plays</div></div>
+    <div class="today-kpi"><div class="today-kpi-val" style="color:var(--green)">${eliteCount}</div><div class="today-kpi-lbl">Elite Plays</div></div>
+  </div>`;
+
+  // ── Best Play: composite score, probability-dominant with signal count as modest boost ──
+  // (same weighting philosophy as the HR engine's scorePlayer — prob*3 + count*5,
+  // so a 7% player with 4 signals can't outrank a 50% player with 2 signals)
+  const scorePlayer = (p) => p.prob * 3 + p.signalCount * 5;
+  const best = players.length ? [...players].sort((a,b) => scorePlayer(b) - scorePlayer(a))[0] : null;
+
+  const bestHTML = best ? `<div class="best-play-card">
+    <div class="best-play-hdr"><span>⚡ Best Play This Week</span><span>Composite signal + probability score</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div class="best-play-name">${best.name}</div>
+        <div class="best-play-sub">${best.position} · ${best.team} vs ${best.opponent}</div>
+        ${best.badge ? `<span class="best-play-badge" style="color:${best.badge.color};background:transparent;border:1px solid ${best.badge.color}66">${best.badge.label}</span>` : ''}
+      </div>
+      <div style="text-align:right">
+        <div class="best-play-prob">${best.prob}%</div>
+        <div class="gs-meta">Anytime TD</div>
+      </div>
+    </div>
+  </div>` : '';
+
+  // ── Top TD Targets / Top Signal Plays, two-column ──
+  const top5 = [...players].sort((a,b)=>b.prob-a.prob).slice(0,5);
+  const top5HTML = top5.map((p,i) => `<div class="today-target">
+    <div class="today-target-rank">${i+1}</div>
+    <div style="flex:1">
+      <div class="today-target-name">${p.name}</div>
+      <div class="today-target-sub">${p.team} vs ${p.opponent}</div>
+    </div>
+    <div class="today-target-prob" style="color:var(--teal)">${p.prob}%</div>
+  </div>`).join('') || '<div class="gs-meta" style="padding:8px 0">No data</div>';
+
+  const topSignals = [...signalPlays].sort((a,b) => b.signalCount !== a.signalCount ? b.signalCount - a.signalCount : b.prob - a.prob).slice(0,5);
+  const signalHTML = topSignals.map(p => `<div class="today-target">
+    <div style="flex:1">
+      <div class="today-target-name">${p.name}</div>
+      <div class="today-target-sub">${p.team} vs ${p.opponent}</div>
+    </div>
+    <div style="text-align:right">
+      <div class="today-target-prob" style="color:var(--teal)">${p.prob}%</div>
+      ${p.badge ? `<div style="font-size:8px;font-family:var(--mono);font-weight:700;color:${p.badge.color};margin-top:2px">${p.badge.label}</div>` : ''}
+    </div>
+  </div>`).join('') || '<div class="gs-meta" style="padding:8px 0">No signal plays this week</div>';
+
+  // ── Game Leans: condensed team-model summary per game ──
+  const leansHTML = games.map(g => {
+    const m = g.model || {};
+    const lean = m.shootoutSignal ? '🔥 Shootout' : m.lowScoringSignal ? '🛡 Low Scoring' : '';
+    return `<div class="game-lean-row">
+      <div class="game-lean-teams">${g.awayTeam} @ ${g.homeTeam}</div>
+      <div class="game-lean-meta">
+        <span>${g.awayTeam} ${m.awayImplied ?? '—'}</span>
+        <span>${g.homeTeam} ${m.homeImplied ?? '—'}</span>
+        <span style="color:var(--teal)">Total ${m.total ?? '—'}</span>
+        <span>${g.homeTeam} ${m.homeWinProb ?? '—'}% ML</span>
+        ${lean ? `<span>${lean}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML =
+    stripHTML + kpiHTML + bestHTML +
+    `<div class="today-two-col">
+      <div class="today-section"><div class="today-section-hdr"><span>Top TD Targets</span></div><div class="today-section-body">${top5HTML}</div></div>
+      <div class="today-section"><div class="today-section-hdr"><span>Top Signal Plays</span></div><div class="today-section-body">${signalHTML}</div></div>
+    </div>
+    <div class="today-section"><div class="today-section-hdr"><span>Game Leans</span></div><div class="today-section-body">${leansHTML}</div></div>`;
+}
+
+async function loadTeamModel() {
+  try {
+    const r = await fetch('/api/team-model?week=' + week);
+    const d = await r.json();
+    renderTeamModel(d);
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
+  }
+}
+
+async function loadTdProps() {
+  document.getElementById('content').innerHTML = '<div class="empty"><h3>Loading Anytime TD model…</h3></div>';
+  try {
+    const r = await fetch('/api/props?week=' + week);
+    const d = await r.json();
+    renderTdProps(d);
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
+  }
+}
+
+function renderTeamModel(d) {
+  document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
+  const games = d.games || [];
+  if (!games.length) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>No games found for week ' + d.week + '</h3></div>';
+    return;
+  }
+  document.getElementById('content').innerHTML = games.map(g => {
+    const m = g.model || {};
+    const badges = [
+      m.shootoutSignal ? '<span class="badge-shootout">🔥 Shootout</span>' : '',
+      m.lowScoringSignal ? '<span class="badge-lowscore">🛡 Low Scoring</span>' : '',
+    ].join(' ');
+    return `<div class="gc">
+      <div class="gch">
+        <div class="gctime">${g.awayTeam} @ ${g.homeTeam}</div>
+        <div>${badges}</div>
+      </div>
+      <div class="gbody">
+        <div><div class="sl">${g.awayTeam} Implied</div><div class="sv">${m.awayImplied ?? '—'}</div></div>
+        <div><div class="sl">${g.homeTeam} Implied</div><div class="sv">${m.homeImplied ?? '—'}</div></div>
+        <div><div class="sl">Total</div><div class="sv teal">${m.total ?? '—'}</div></div>
+        <div><div class="sl">${g.homeTeam} Win Prob</div><div class="sv">${m.homeWinProb ?? '—'}%</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderTdProps(d) {
+  document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
+  const players = d.players || [];
+  if (!players.length) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3><div>' + (d.error || '') + '</div></div>';
+    return;
+  }
+  const rows = players.map(p => {
+    const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
+    return `<tr>
+      <td class="td-name">${p.name}</td>
+      <td class="td-pos">${p.position}</td>
+      <td class="td-team">${p.team} vs ${p.opponent}</td>
+      <td class="td-prob">${p.prob}%</td>
+      <td class="td-touch">${p.touches}</td>
+      <td>${badgeHtml}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <table class="td-table">
+      <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th>Anytime TD%</th><th>Touches (L5)</th><th>Signal</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
+      Player pool is usage-based (top targets/carries over last 5 games), not yet a confirmed
+      active roster for this week — injury/inactive filtering isn't wired up yet.
+    </div>
+  `;
+}
+
+async function loadRushProps() {
+  document.getElementById('content').innerHTML = '<div class="empty"><h3>Loading rushing yards projections…</h3></div>';
+  try {
+    const r = await fetch('/api/rush-props?week=' + week);
+    const d = await r.json();
+    renderRushProps(d);
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
+  }
+}
+
+function renderRushProps(d) {
+  document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
+  const players = d.players || [];
+  if (!players.length) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3><div>' + (d.error || '') + '</div></div>';
+    return;
+  }
+  const rows = players.map(p => {
+    const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
+    return `<tr>
+      <td class="td-name">${p.name}</td>
+      <td class="td-team">${p.team} vs ${p.opponent}</td>
+      <td class="td-prob">${p.projected}</td>
+      <td class="td-touch">${p.floor}–${p.ceiling}</td>
+      <td class="td-touch">${p.carries}</td>
+      <td>${badgeHtml}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <table class="td-table">
+      <thead><tr><th>Player</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Carries (L5)</th><th>Signal</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
+      Projection is a mean estimate with a rough floor/ceiling range based on the player's own
+      recent-game variance — not a fitted statistical distribution. There's no sportsbook line
+      to compute "probability of clearing X" against (free-data-only decision from scoping),
+      so this shows a projected value rather than an over/under percentage. Player pool is
+      usage-based, not yet a confirmed active roster for this week.
+    </div>
+  `;
+}
+
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  currentTab = t.dataset.tab;
+  if (currentTab === 'week') loadThisWeek();
+  else if (currentTab === 'team') loadTeamModel();
+  else if (currentTab === 'td') loadTdProps();
+  else if (currentTab === 'rush') loadRushProps();
+  else {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>Not built yet</h3><div>This tab is next up in the build order.</div></div>';
+  }
+}));
+
+loadThisWeek();
+</script>
+</body>
+</html>
