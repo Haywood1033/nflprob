@@ -416,6 +416,50 @@ function renderRecProps(d) {
   `;
 }
 
+async function loadPassProps() {
+  document.getElementById('content').innerHTML = '<div class="empty"><h3>Loading passing yards projections…</h3></div>';
+  try {
+    const r = await fetch('/api/pass-props?week=' + week);
+    const d = await r.json();
+    renderPassProps(d);
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
+  }
+}
+
+function renderPassProps(d) {
+  document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
+  const players = d.players || [];
+  if (!players.length) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3><div>' + (d.error || '') + '</div></div>';
+    return;
+  }
+  const rows = players.map(p => {
+    const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
+    return `<tr>
+      <td class="td-name">${p.name}</td>
+      <td class="td-team">${p.team} vs ${p.opponent}</td>
+      <td class="td-prob">${p.projected}</td>
+      <td class="td-touch">${p.floor}–${p.ceiling}</td>
+      <td class="td-touch">${p.attempts}</td>
+      <td>${badgeHtml}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <table class="td-table">
+      <thead><tr><th>QB</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Attempts (L5)</th><th>Signal</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
+      One starter per team (top-attempts QB over the last 5 games) — this does NOT account
+      for a starter being injured/inactive this week, since that needs real injury data we
+      don't have wired in yet. Projection is a mean estimate with a rough floor/ceiling range,
+      not a fitted statistical distribution or a line-based probability.
+    </div>
+  `;
+}
+
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
   t.classList.add('active');
@@ -425,6 +469,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   else if (currentTab === 'td') loadTdProps();
   else if (currentTab === 'rush') loadRushProps();
   else if (currentTab === 'rec') loadRecProps();
+  else if (currentTab === 'pass') loadPassProps();
   else {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>Not built yet</h3><div>This tab is next up in the build order.</div></div>';
   }
