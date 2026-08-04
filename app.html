@@ -86,6 +86,15 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .game-lean-row:last-child{border-bottom:none}
 .game-lean-teams{font-weight:600;color:var(--t1)}
 .game-lean-meta{display:flex;gap:14px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--t3)}
+
+/* ── Filter bar: matchup dropdown + position pills ── */
+.filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.matchup-select{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.16);border-radius:6px;color:var(--t1);font-family:var(--mono);font-size:12px;padding:7px 12px;cursor:pointer;min-width:200px}
+.matchup-select:focus{outline:none;border-color:var(--teal)}
+.pos-pills{display:flex;gap:6px}
+.pos-pill{padding:6px 13px;font-size:11px;font-weight:600;cursor:pointer;border-radius:20px;color:var(--t3);border:0.5px solid rgba(255,255,255,0.14);font-family:var(--mono);transition:all .15s;background:transparent}
+.pos-pill.on{color:var(--teal);background:rgba(45,212,191,.1);border-color:rgba(45,212,191,.3)}
+.filter-count{font-size:11px;font-family:var(--mono);color:var(--t3);margin-left:auto}
 </style>
 </head>
 <body>
@@ -115,6 +124,71 @@ const week = params.get('week') || 1;
 document.getElementById('weekLabel').textContent = 'Week ' + week;
 
 let currentTab = 'week';
+
+// ── Filter state + raw data cache (so filtering re-renders instantly, no refetch) ──
+const rawData = { td: null, rush: null, rec: null, pass: null };
+const filterState = {
+  td:   { matchup: 'all', position: 'all' },
+  rush: { matchup: 'all' },
+  rec:  { matchup: 'all' },
+  pass: { matchup: 'all' },
+};
+
+// Sorted team pair so both sides of a game produce the same matchup key/label
+function matchupKey(p) {
+  return [p.team, p.opponent].sort().join(' vs ');
+}
+
+function buildMatchupOptions(players) {
+  const seen = new Set();
+  const options = [];
+  for (const p of players) {
+    const key = matchupKey(p);
+    if (!seen.has(key)) { seen.add(key); options.push(key); }
+  }
+  return options.sort();
+}
+
+function filterPlayers(players, matchup, position) {
+  return players.filter(p => {
+    if (matchup !== 'all' && matchupKey(p) !== matchup) return false;
+    if (position && position !== 'all' && p.position !== position) return false;
+    return true;
+  });
+}
+
+function renderMatchupSelect(tab, players) {
+  const options = buildMatchupOptions(players);
+  const current = filterState[tab].matchup;
+  return `<select class="matchup-select" id="matchupSelect-${tab}">
+    <option value="all"${current === 'all' ? ' selected' : ''}>All Games</option>
+    ${options.map(o => `<option value="${o}"${current === o ? ' selected' : ''}>${o}</option>`).join('')}
+  </select>`;
+}
+
+function renderPositionPills(tab, positions) {
+  const current = filterState[tab].position;
+  return `<div class="pos-pills">
+    <div class="pos-pill${current === 'all' ? ' on' : ''}" data-pos="all" data-tab="${tab}">All</div>
+    ${positions.map(pos => `<div class="pos-pill${current === pos ? ' on' : ''}" data-pos="${pos}" data-tab="${tab}">${pos}</div>`).join('')}
+  </div>`;
+}
+
+function attachFilterHandlers(tab, rerenderFn) {
+  const select = document.getElementById('matchupSelect-' + tab);
+  if (select) {
+    select.addEventListener('change', () => {
+      filterState[tab].matchup = select.value;
+      rerenderFn(rawData[tab]);
+    });
+  }
+  document.querySelectorAll(`.pos-pill[data-tab="${tab}"]`).forEach(pill => {
+    pill.addEventListener('click', () => {
+      filterState[tab].position = pill.dataset.pos;
+      rerenderFn(rawData[tab]);
+    });
+  });
+}
 
 async function loadThisWeek() {
   document.getElementById('content').innerHTML = '<div class="empty"><h3>Loading this week\u2019s slate…</h3></div>';
@@ -260,6 +334,7 @@ async function loadTdProps() {
   try {
     const r = await fetch('/api/props?week=' + week);
     const d = await r.json();
+    rawData.td = d;
     renderTdProps(d);
   } catch (e) {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
@@ -296,11 +371,21 @@ function renderTeamModel(d) {
 
 function renderTdProps(d) {
   document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
-  const players = d.players || [];
-  if (!players.length) {
+  const allPlayers = d.players || [];
+  if (!allPlayers.length) {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3><div>' + (d.error || '') + '</div></div>';
     return;
   }
+
+  const { matchup, position } = filterState.td;
+  const players = filterPlayers(allPlayers, matchup, position);
+
+  const filterBarHTML = `<div class="filter-bar">
+    ${renderMatchupSelect('td', allPlayers)}
+    ${renderPositionPills('td', ['RB', 'WR', 'TE'])}
+    <span class="filter-count">${players.length} of ${allPlayers.length} players</span>
+  </div>`;
+
   const rows = players.map(p => {
     const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
     return `<tr>
@@ -313,16 +398,18 @@ function renderTdProps(d) {
     </tr>`;
   }).join('');
 
-  document.getElementById('content').innerHTML = `
+  document.getElementById('content').innerHTML = filterBarHTML + `
     <table class="td-table">
       <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th>Anytime TD%</th><th>Touches (L5)</th><th>Signal</th></tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
       Player pool is usage-based (top targets/carries over last 5 games), not yet a confirmed
       active roster for this week — injury/inactive filtering isn't wired up yet.
     </div>
   `;
+
+  attachFilterHandlers('td', renderTdProps);
 }
 
 async function loadRushProps() {
@@ -330,6 +417,7 @@ async function loadRushProps() {
   try {
     const r = await fetch('/api/rush-props?week=' + week);
     const d = await r.json();
+    rawData.rush = d;
     renderRushProps(d);
   } catch (e) {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
@@ -338,11 +426,20 @@ async function loadRushProps() {
 
 function renderRushProps(d) {
   document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
-  const players = d.players || [];
-  if (!players.length) {
+  const allPlayers = d.players || [];
+  if (!allPlayers.length) {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3><div>' + (d.error || '') + '</div></div>';
     return;
   }
+
+  const { matchup } = filterState.rush;
+  const players = filterPlayers(allPlayers, matchup, null);
+
+  const filterBarHTML = `<div class="filter-bar">
+    ${renderMatchupSelect('rush', allPlayers)}
+    <span class="filter-count">${players.length} of ${allPlayers.length} players</span>
+  </div>`;
+
   const rows = players.map(p => {
     const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
     return `<tr>
@@ -355,10 +452,10 @@ function renderRushProps(d) {
     </tr>`;
   }).join('');
 
-  document.getElementById('content').innerHTML = `
+  document.getElementById('content').innerHTML = filterBarHTML + `
     <table class="td-table">
       <thead><tr><th>Player</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Carries (L5)</th><th>Signal</th></tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
       Projection is a mean estimate with a rough floor/ceiling range based on the player's own
@@ -368,6 +465,8 @@ function renderRushProps(d) {
       usage-based, not yet a confirmed active roster for this week.
     </div>
   `;
+
+  attachFilterHandlers('rush', renderRushProps);
 }
 
 async function loadRecProps() {
@@ -375,6 +474,7 @@ async function loadRecProps() {
   try {
     const r = await fetch('/api/rec-props?week=' + week);
     const d = await r.json();
+    rawData.rec = d;
     renderRecProps(d);
   } catch (e) {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
@@ -383,11 +483,20 @@ async function loadRecProps() {
 
 function renderRecProps(d) {
   document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
-  const players = d.players || [];
-  if (!players.length) {
+  const allPlayers = d.players || [];
+  if (!allPlayers.length) {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3><div>' + (d.error || '') + '</div></div>';
     return;
   }
+
+  const { matchup } = filterState.rec;
+  const players = filterPlayers(allPlayers, matchup, null);
+
+  const filterBarHTML = `<div class="filter-bar">
+    ${renderMatchupSelect('rec', allPlayers)}
+    <span class="filter-count">${players.length} of ${allPlayers.length} players</span>
+  </div>`;
+
   const rows = players.map(p => {
     const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
     return `<tr>
@@ -401,10 +510,10 @@ function renderRecProps(d) {
     </tr>`;
   }).join('');
 
-  document.getElementById('content').innerHTML = `
+  document.getElementById('content').innerHTML = filterBarHTML + `
     <table class="td-table">
       <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Targets (L5)</th><th>Signal</th></tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
       WR/TE only (RB receiving isn't covered here). Projection is a mean estimate with a rough
@@ -414,6 +523,8 @@ function renderRecProps(d) {
       confirmed active roster for this week.
     </div>
   `;
+
+  attachFilterHandlers('rec', renderRecProps);
 }
 
 async function loadPassProps() {
@@ -421,6 +532,7 @@ async function loadPassProps() {
   try {
     const r = await fetch('/api/pass-props?week=' + week);
     const d = await r.json();
+    rawData.pass = d;
     renderPassProps(d);
   } catch (e) {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
@@ -429,11 +541,20 @@ async function loadPassProps() {
 
 function renderPassProps(d) {
   document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
-  const players = d.players || [];
-  if (!players.length) {
+  const allPlayers = d.players || [];
+  if (!allPlayers.length) {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3><div>' + (d.error || '') + '</div></div>';
     return;
   }
+
+  const { matchup } = filterState.pass;
+  const players = filterPlayers(allPlayers, matchup, null);
+
+  const filterBarHTML = `<div class="filter-bar">
+    ${renderMatchupSelect('pass', allPlayers)}
+    <span class="filter-count">${players.length} of ${allPlayers.length} QBs</span>
+  </div>`;
+
   const rows = players.map(p => {
     const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
     return `<tr>
@@ -446,10 +567,10 @@ function renderPassProps(d) {
     </tr>`;
   }).join('');
 
-  document.getElementById('content').innerHTML = `
+  document.getElementById('content').innerHTML = filterBarHTML + `
     <table class="td-table">
       <thead><tr><th>QB</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Attempts (L5)</th><th>Signal</th></tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
       One starter per team (top-attempts QB over the last 5 games) — this does NOT account
@@ -458,6 +579,8 @@ function renderPassProps(d) {
       not a fitted statistical distribution or a line-based probability.
     </div>
   `;
+
+  attachFilterHandlers('pass', renderPassProps);
 }
 
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
