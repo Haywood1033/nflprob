@@ -6,6 +6,7 @@
     "api/rush-props.js": { "maxDuration": 60 },
     "api/rec-props.js":  { "maxDuration": 60 },
     "api/pass-props.js": { "maxDuration": 60 },
+    "api/season.js":     { "maxDuration": 60 },
     "api/history.js":    { "maxDuration": 30 }
   },
   "rewrites": [
