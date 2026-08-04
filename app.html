@@ -370,6 +370,52 @@ function renderRushProps(d) {
   `;
 }
 
+async function loadRecProps() {
+  document.getElementById('content').innerHTML = '<div class="empty"><h3>Loading receiving yards projections…</h3></div>';
+  try {
+    const r = await fetch('/api/rec-props?week=' + week);
+    const d = await r.json();
+    renderRecProps(d);
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
+  }
+}
+
+function renderRecProps(d) {
+  document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
+  const players = d.players || [];
+  if (!players.length) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3><div>' + (d.error || '') + '</div></div>';
+    return;
+  }
+  const rows = players.map(p => {
+    const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
+    return `<tr>
+      <td class="td-name">${p.name}</td>
+      <td class="td-pos">${p.position}</td>
+      <td class="td-team">${p.team} vs ${p.opponent}</td>
+      <td class="td-prob">${p.projected}</td>
+      <td class="td-touch">${p.floor}–${p.ceiling}</td>
+      <td class="td-touch">${p.targets}</td>
+      <td>${badgeHtml}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <table class="td-table">
+      <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Targets (L5)</th><th>Signal</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
+      WR/TE only (RB receiving isn't covered here). Projection is a mean estimate with a rough
+      floor/ceiling range based on the player's own recent-game variance — not a fitted
+      statistical distribution. No sportsbook line to grade against, so this shows a projected
+      value rather than an over/under percentage. Player pool is usage-based, not yet a
+      confirmed active roster for this week.
+    </div>
+  `;
+}
+
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
   t.classList.add('active');
@@ -378,6 +424,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   else if (currentTab === 'team') loadTeamModel();
   else if (currentTab === 'td') loadTdProps();
   else if (currentTab === 'rush') loadRushProps();
+  else if (currentTab === 'rec') loadRecProps();
   else {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>Not built yet</h3><div>This tab is next up in the build order.</div></div>';
   }
