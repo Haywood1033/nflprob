@@ -87,6 +87,31 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .game-lean-teams{font-weight:600;color:var(--t1)}
 .game-lean-meta{display:flex;gap:14px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--t3)}
 
+/* ── SLATE tab: square game cards ── */
+.slate-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.slate-card{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:10px;overflow:hidden;transition:border-color .15s}
+.slate-card:hover{border-color:rgba(45,212,191,.3)}
+.slate-card.shootout{border-color:rgba(245,158,11,.3)}
+.slate-hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg3);border-bottom:0.5px solid var(--bd)}
+.slate-weather{font-size:10px;font-family:var(--mono);color:var(--t3);display:flex;align-items:center;gap:5px}
+.slate-matchup{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 12px}
+.slate-team{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1}
+.slate-logo{width:48px;height:48px;object-fit:contain}
+.slate-team-name{font-size:11px;font-weight:600;color:var(--t1);text-align:center}
+.slate-team-implied{font-size:24px;font-weight:700;font-family:var(--mono);color:var(--t1)}
+.slate-vs{font-size:10px;font-family:var(--mono);color:var(--t3);padding:0 8px}
+.slate-meta-row{display:flex;justify-content:space-around;padding:10px 14px;border-top:0.5px solid var(--bg3);border-bottom:0.5px solid var(--bg3)}
+.slate-meta-item{text-align:center}
+.slate-meta-val{font-size:14px;font-weight:700;font-family:var(--mono);color:var(--teal)}
+.slate-meta-lbl{font-size:9px;font-family:var(--mono);color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+.slate-targets{padding:10px 14px}
+.slate-target-row{display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:4px 0}
+.slate-target-lbl{color:var(--t3);font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.05em}
+.slate-target-val{color:var(--t1);font-weight:600}
+.slate-target-prob{color:var(--teal);font-family:var(--mono);font-weight:700}
+.slate-top-prop{padding:10px 14px;background:rgba(167,139,250,.06);border-top:0.5px solid var(--bg3)}
+.slate-top-prop-lbl{font-size:9px;font-family:var(--mono);color:var(--purple);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+
 /* ── Filter bar: matchup dropdown + position pills ── */
 .filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
 .matchup-select{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.16);border-radius:6px;color:var(--t1);font-family:var(--mono);font-size:12px;padding:7px 12px;cursor:pointer;min-width:200px}
@@ -106,7 +131,7 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 
   <div class="tabs">
     <div class="tab active" data-tab="week">This Week</div>
-    <div class="tab" data-tab="team">Team Model</div>
+    <div class="tab" data-tab="team">Slate</div>
     <div class="tab" data-tab="td">Anytime TD</div>
     <div class="tab" data-tab="rush">Rushing Yds</div>
     <div class="tab" data-tab="rec">Receiving Yds</div>
@@ -321,10 +346,19 @@ function renderThisWeek(teamData, propsData) {
 }
 
 async function loadTeamModel() {
+  document.getElementById('content').innerHTML = '<div class="empty"><h3>Loading slate…</h3></div>';
   try {
-    const r = await fetch('/api/team-model?week=' + week);
-    const d = await r.json();
-    renderTeamModel(d);
+    const [teamRes, tdRes, rushRes, recRes, passRes] = await Promise.all([
+      fetch('/api/team-model?week=' + week).then(r => r.json()),
+      fetch('/api/props?week=' + week).then(r => r.json()),
+      fetch('/api/rush-props?week=' + week).then(r => r.json()),
+      fetch('/api/rec-props?week=' + week).then(r => r.json()),
+      fetch('/api/pass-props?week=' + week).then(r => r.json()),
+    ]);
+    renderTeamModel(teamRes, {
+      td: tdRes.players || [], rush: rushRes.players || [],
+      rec: recRes.players || [], pass: passRes.players || [],
+    });
   } catch (e) {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
   }
@@ -342,32 +376,83 @@ async function loadTdProps() {
   }
 }
 
-function renderTeamModel(d) {
+// ESPN's public logo CDN — unverified against a live response like the rest of the ESPN
+// integration, but follows the same documented pattern used elsewhere (lowercase abbr).
+function espnLogoUrl(abbr) {
+  return abbr ? `https://a.espncdn.com/i/teamlogos/nfl/500/${abbr.toLowerCase()}.png` : '';
+}
+
+function weatherLabel(w) {
+  if (!w || !Object.keys(w).length) return '';
+  if (w.dome) return '🏟 Dome';
+  const parts = [];
+  if (w.t != null) parts.push(w.t + '°F');
+  if (w.w != null) parts.push(w.w + 'mph' + (w.c ? ' ' + w.c : ''));
+  if (w.s) parts.push(w.s);
+  return parts.join(' · ');
+}
+
+function renderTeamModel(d, props) {
   document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
   const games = d.games || [];
   if (!games.length) {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>No games found for week ' + d.week + '</h3></div>';
     return;
   }
-  document.getElementById('content').innerHTML = games.map(g => {
+
+  const cards = games.map(g => {
     const m = g.model || {};
-    const badges = [
-      m.shootoutSignal ? '<span class="badge-shootout">🔥 Shootout</span>' : '',
-      m.lowScoringSignal ? '<span class="badge-lowscore">🛡 Low Scoring</span>' : '',
-    ].join(' ');
-    return `<div class="gc">
-      <div class="gch">
-        <div class="gctime">${g.awayTeam} @ ${g.homeTeam}</div>
-        <div>${badges}</div>
+    const isShootout = m.shootoutSignal;
+
+    // Top TD threat per team, and the single top target across the whole game
+    const homeTdTop = props.td.filter(p => p.team === g.homeTeam).sort((a, b) => b.prob - a.prob)[0];
+    const awayTdTop = props.td.filter(p => p.team === g.awayTeam).sort((a, b) => b.prob - a.prob)[0];
+    const gameTop = [homeTdTop, awayTdTop].filter(Boolean).sort((a, b) => b.prob - a.prob)[0];
+
+    // Top single prop projection (whichever stat is highest) among players in this game
+    const gameTeams = [g.homeTeam, g.awayTeam];
+    const rushC = props.rush.filter(p => gameTeams.includes(p.team)).map(p => ({ ...p, statLabel: 'Rushing Yds', value: p.projected }));
+    const recC  = props.rec.filter(p => gameTeams.includes(p.team)).map(p => ({ ...p, statLabel: 'Receiving Yds', value: p.projected }));
+    const passC = props.pass.filter(p => gameTeams.includes(p.team)).map(p => ({ ...p, statLabel: 'Passing Yds', value: p.projected }));
+    const topProp = [...rushC, ...recC, ...passC].sort((a, b) => b.value - a.value)[0];
+
+    const weatherText = weatherLabel(g.weather);
+
+    return `<div class="slate-card${isShootout ? ' shootout' : ''}">
+      <div class="slate-hdr">
+        <div class="slate-weather">${weatherText ? '🌤 ' + weatherText : ''}</div>
+        <div>${isShootout ? '<span class="badge-shootout">🔥 Shootout</span>' : m.lowScoringSignal ? '<span class="badge-lowscore">🛡 Low Scoring</span>' : ''}</div>
       </div>
-      <div class="gbody">
-        <div><div class="sl">${g.awayTeam} Implied</div><div class="sv">${m.awayImplied ?? '—'}</div></div>
-        <div><div class="sl">${g.homeTeam} Implied</div><div class="sv">${m.homeImplied ?? '—'}</div></div>
-        <div><div class="sl">Total</div><div class="sv teal">${m.total ?? '—'}</div></div>
-        <div><div class="sl">${g.homeTeam} Win Prob</div><div class="sv">${m.homeWinProb ?? '—'}%</div></div>
+      <div class="slate-matchup">
+        <div class="slate-team">
+          <img class="slate-logo" src="${espnLogoUrl(g.awayAbbr)}" alt="${g.awayTeam}" onerror="this.style.visibility='hidden'">
+          <div class="slate-team-name">${g.awayTeam}</div>
+          <div class="slate-team-implied">${m.awayImplied ?? '—'}</div>
+        </div>
+        <div class="slate-vs">@</div>
+        <div class="slate-team">
+          <img class="slate-logo" src="${espnLogoUrl(g.homeAbbr)}" alt="${g.homeTeam}" onerror="this.style.visibility='hidden'">
+          <div class="slate-team-name">${g.homeTeam}</div>
+          <div class="slate-team-implied">${m.homeImplied ?? '—'}</div>
+        </div>
       </div>
+      <div class="slate-meta-row">
+        <div class="slate-meta-item"><div class="slate-meta-val">${m.total ?? '—'}</div><div class="slate-meta-lbl">Total</div></div>
+        <div class="slate-meta-item"><div class="slate-meta-val">${m.homeWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.homeTeam} Win</div></div>
+      </div>
+      <div class="slate-targets">
+        ${gameTop ? `<div class="slate-target-row"><span class="slate-target-lbl">Top Target</span><span class="slate-target-val">${gameTop.name}</span><span class="slate-target-prob">${gameTop.prob}%</span></div>` : ''}
+        ${awayTdTop ? `<div class="slate-target-row"><span class="slate-target-lbl">${g.awayTeam} TD</span><span class="slate-target-val">${awayTdTop.name}</span><span class="slate-target-prob">${awayTdTop.prob}%</span></div>` : ''}
+        ${homeTdTop ? `<div class="slate-target-row"><span class="slate-target-lbl">${g.homeTeam} TD</span><span class="slate-target-val">${homeTdTop.name}</span><span class="slate-target-prob">${homeTdTop.prob}%</span></div>` : ''}
+      </div>
+      ${topProp ? `<div class="slate-top-prop">
+        <div class="slate-top-prop-lbl">Top Prop Projection</div>
+        <div class="slate-target-row"><span class="slate-target-val">${topProp.name} — ${topProp.statLabel}</span><span class="slate-target-prob">${topProp.value}</span></div>
+      </div>` : ''}
     </div>`;
   }).join('');
+
+  document.getElementById('content').innerHTML = '<div class="slate-grid">' + cards + '</div>';
 }
 
 function renderTdProps(d) {
