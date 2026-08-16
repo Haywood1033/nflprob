@@ -35,8 +35,9 @@ module.exports = async function handler(req, res) {
   const games = schedule.map(g => {
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, Number(week) - 1) : null;
     const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, Number(week) - 1) : null;
-    const model = buildGameModel(homeEff, awayEff, { weather: weather[g.homeTeam] || {} });
-    return { ...g, model };
+    const gameWeather = weather[g.homeTeam] || {};
+    const model = buildGameModel(homeEff, awayEff, { weather: gameWeather });
+    return { ...g, model, weather: gameWeather };
   });
 
   const data = { week, year, games, timestamp: Date.now(), elapsed: Date.now() - start };
