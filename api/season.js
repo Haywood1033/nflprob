@@ -33,6 +33,14 @@ const CACHE_TTL = 60 * 60 * 1000; // 1 hour — season projections don't need to
 
 const ALL_TEAMS = Object.keys(ESPN_TEAM_NAME); // 32 ESPN abbreviations
 
+// Season projections should be anchored on a FULL season's per-game rate, not the weekly
+// tabs' 5-game recency window — a short recent stretch (e.g. an unusually hot or cold 5
+// games) is appropriate for "what's this player doing right now" but produces unrealistic
+// season-long extrapolations when multiplied across 17 games. 18 covers a full regular
+// season with margin; playoffs are already excluded everywhere via the season_type==='REG'
+// filter baked into each usage function.
+const SEASON_WINDOW = 18;
+
 function topByVolume(playerRows, teamEspnAbbr, throughWeek, positions, volumeField, count) {
   const team = toNflverseAbbr(teamEspnAbbr);
   const weekFilter = throughWeek < 1 ? () => true : (r) => Number(r.week) <= throughWeek;
@@ -69,7 +77,7 @@ module.exports = async function handler(req, res) {
 
   // Precompute each team's own efficiency ONCE — reused across every opponent's schedule
   const teamEffByAbbr = {};
-  for (const abbr of ALL_TEAMS) teamEffByAbbr[abbr] = computeTeamEfficiency(teamRows, abbr, throughWeek);
+  for (const abbr of ALL_TEAMS) teamEffByAbbr[abbr] = computeTeamEfficiency(teamRows, abbr, throughWeek, SEASON_WINDOW);
 
   // Fetch every team's full season schedule ONCE
   const schedules = {};
@@ -128,7 +136,7 @@ module.exports = async function handler(req, res) {
       const pool = [...rbPool, ...wrTePool];
 
       for (const candidate of pool) {
-        const usage = computePlayerUsage(playerRows, candidate.name, throughWeek);
+        const usage = computePlayerUsage(playerRows, candidate.name, throughWeek, SEASON_WINDOW);
         if (!usage) continue;
 
         let seasonProb = 0, gamesRemaining = 0;
@@ -138,7 +146,7 @@ module.exports = async function handler(req, res) {
           const oppEff = teamEffByAbbr[g.oppAbbr];
           const model = g.isHome ? buildGameModel(teamEffByAbbr[abbr], oppEff, {}) : buildGameModel(oppEff, teamEffByAbbr[abbr], {});
           const teamImplied = g.isHome ? model.homeImplied : model.awayImplied;
-          const defAllowed = computeDefenseAllowedToPosition(playerRows, g.oppAbbr, usage.position, throughWeek, 5, toNflverseAbbr);
+          const defAllowed = computeDefenseAllowedToPosition(playerRows, g.oppAbbr, usage.position, throughWeek, SEASON_WINDOW, toNflverseAbbr);
           const prob = anytimeTdProb(usage, defAllowed, teamImplied);
           if (prob != null) seasonProb += prob / 100;
         }
@@ -165,13 +173,13 @@ module.exports = async function handler(req, res) {
       for (const candidate of pool) {
         let usage, computeDefFn, projectFn;
         if (category === 'rush') {
-          usage = computeRushUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek);
+          usage = computeRushUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek, SEASON_WINDOW);
           computeDefFn = computeRushDefenseAllowed; projectFn = projectRushYards;
         } else if (category === 'rec') {
-          usage = computeRecUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek);
+          usage = computeRecUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek, SEASON_WINDOW);
           computeDefFn = computeRecDefenseAllowed; projectFn = projectRecYards;
         } else {
-          usage = computePassUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek);
+          usage = computePassUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek, SEASON_WINDOW);
           computeDefFn = computePassDefenseAllowed; projectFn = projectPassYards;
         }
         if (!usage) continue;
@@ -183,7 +191,7 @@ module.exports = async function handler(req, res) {
           const oppEff = teamEffByAbbr[g.oppAbbr];
           const model = g.isHome ? buildGameModel(teamEffByAbbr[abbr], oppEff, {}) : buildGameModel(oppEff, teamEffByAbbr[abbr], {});
           const teamImplied = g.isHome ? model.homeImplied : model.awayImplied;
-          const defAllowed = computeDefFn(teamRows, g.oppAbbr, throughWeek, 5, toNflverseAbbr);
+          const defAllowed = computeDefFn(teamRows, g.oppAbbr, throughWeek, SEASON_WINDOW, toNflverseAbbr);
           const proj = projectFn(usage, defAllowed, teamImplied);
           if (proj) seasonYards += proj.projected;
         }
