@@ -111,6 +111,18 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .slate-target-prob{color:var(--teal);font-family:var(--mono);font-weight:700}
 .slate-top-prop{padding:10px 14px;background:rgba(167,139,250,.06);border-top:0.5px solid var(--bg3)}
 .slate-top-prop-lbl{font-size:9px;font-family:var(--mono);color:var(--purple);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+.slate-card{cursor:pointer}
+
+.slate-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(2px);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.slate-modal{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.18);border-radius:12px;max-width:440px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5);position:relative}
+.slate-modal-close{position:absolute;top:14px;right:16px;font-size:20px;color:var(--t3);cursor:pointer;line-height:1;padding:4px}
+.slate-modal-close:hover{color:var(--t1)}
+.slate-modal .slate-matchup{padding:24px 24px 16px}
+.slate-modal .slate-logo{width:64px;height:64px}
+.slate-modal .slate-team-implied{font-size:32px}
+.slate-modal-section{padding:12px 20px}
+.slate-modal-section-hdr{font-size:10px;font-family:var(--mono);color:var(--t3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
 
 /* ── Filter bar: matchup dropdown + position pills ── */
 .filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
@@ -392,6 +404,8 @@ function weatherLabel(w) {
   return parts.join(' · ');
 }
 
+let slateGames = []; // stores computed per-game data so the modal can look it up without recomputation
+
 function renderTeamModel(d, props) {
   document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
   const games = d.games || [];
@@ -400,25 +414,28 @@ function renderTeamModel(d, props) {
     return;
   }
 
-  const cards = games.map(g => {
+  slateGames = games.map(g => {
     const m = g.model || {};
-    const isShootout = m.shootoutSignal;
-
-    // Top TD threat per team, and the single top target across the whole game
-    const homeTdTop = props.td.filter(p => p.team === g.homeTeam).sort((a, b) => b.prob - a.prob)[0];
-    const awayTdTop = props.td.filter(p => p.team === g.awayTeam).sort((a, b) => b.prob - a.prob)[0];
-    const gameTop = [homeTdTop, awayTdTop].filter(Boolean).sort((a, b) => b.prob - a.prob)[0];
-
-    // Top single prop projection (whichever stat is highest) among players in this game
     const gameTeams = [g.homeTeam, g.awayTeam];
+
+    const homeTd = props.td.filter(p => p.team === g.homeTeam).sort((a, b) => b.prob - a.prob);
+    const awayTd = props.td.filter(p => p.team === g.awayTeam).sort((a, b) => b.prob - a.prob);
+    const gameTop = [homeTd[0], awayTd[0]].filter(Boolean).sort((a, b) => b.prob - a.prob)[0];
+
     const rushC = props.rush.filter(p => gameTeams.includes(p.team)).map(p => ({ ...p, statLabel: 'Rushing Yds', value: p.projected }));
     const recC  = props.rec.filter(p => gameTeams.includes(p.team)).map(p => ({ ...p, statLabel: 'Receiving Yds', value: p.projected }));
     const passC = props.pass.filter(p => gameTeams.includes(p.team)).map(p => ({ ...p, statLabel: 'Passing Yds', value: p.projected }));
-    const topProp = [...rushC, ...recC, ...passC].sort((a, b) => b.value - a.value)[0];
+    const allProps = [...rushC, ...recC, ...passC].sort((a, b) => b.value - a.value);
 
-    const weatherText = weatherLabel(g.weather);
+    return { g, m, homeTd, awayTd, gameTop, allProps, weatherText: weatherLabel(g.weather) };
+  });
 
-    return `<div class="slate-card${isShootout ? ' shootout' : ''}">
+  const cards = slateGames.map((sg, i) => {
+    const { g, m, homeTd, awayTd, gameTop, allProps, weatherText } = sg;
+    const isShootout = m.shootoutSignal;
+    const topProp = allProps[0];
+
+    return `<div class="slate-card${isShootout ? ' shootout' : ''}" data-slate-idx="${i}">
       <div class="slate-hdr">
         <div class="slate-weather">${weatherText ? '🌤 ' + weatherText : ''}</div>
         <div>${isShootout ? '<span class="badge-shootout">🔥 Shootout</span>' : m.lowScoringSignal ? '<span class="badge-lowscore">🛡 Low Scoring</span>' : ''}</div>
@@ -442,8 +459,8 @@ function renderTeamModel(d, props) {
       </div>
       <div class="slate-targets">
         ${gameTop ? `<div class="slate-target-row"><span class="slate-target-lbl">Top Target</span><span class="slate-target-val">${gameTop.name}</span><span class="slate-target-prob">${gameTop.prob}%</span></div>` : ''}
-        ${awayTdTop ? `<div class="slate-target-row"><span class="slate-target-lbl">${g.awayTeam} TD</span><span class="slate-target-val">${awayTdTop.name}</span><span class="slate-target-prob">${awayTdTop.prob}%</span></div>` : ''}
-        ${homeTdTop ? `<div class="slate-target-row"><span class="slate-target-lbl">${g.homeTeam} TD</span><span class="slate-target-val">${homeTdTop.name}</span><span class="slate-target-prob">${homeTdTop.prob}%</span></div>` : ''}
+        ${awayTd[0] ? `<div class="slate-target-row"><span class="slate-target-lbl">${g.awayTeam} TD</span><span class="slate-target-val">${awayTd[0].name}</span><span class="slate-target-prob">${awayTd[0].prob}%</span></div>` : ''}
+        ${homeTd[0] ? `<div class="slate-target-row"><span class="slate-target-lbl">${g.homeTeam} TD</span><span class="slate-target-val">${homeTd[0].name}</span><span class="slate-target-prob">${homeTd[0].prob}%</span></div>` : ''}
       </div>
       ${topProp ? `<div class="slate-top-prop">
         <div class="slate-top-prop-lbl">Top Prop Projection</div>
@@ -453,6 +470,79 @@ function renderTeamModel(d, props) {
   }).join('');
 
   document.getElementById('content').innerHTML = '<div class="slate-grid">' + cards + '</div>';
+
+  document.querySelectorAll('.slate-card').forEach(card => {
+    card.addEventListener('click', () => openSlateModal(Number(card.dataset.slateIdx)));
+  });
+}
+
+function openSlateModal(idx) {
+  closeSlateModal(); // guard against a duplicate overlay if triggered twice quickly
+  const sg = slateGames[idx];
+  if (!sg) return;
+  const { g, m, homeTd, awayTd, allProps, weatherText } = sg;
+  const isShootout = m.shootoutSignal;
+
+  const top3Row = (p) => `<div class="slate-target-row"><span class="slate-target-val">${p.name} <span style="color:var(--t3)">(${p.position || p.team})</span></span><span class="slate-target-prob">${p.prob}%</span></div>`;
+  const propRow = (p) => `<div class="slate-target-row"><span class="slate-target-val">${p.name} — ${p.statLabel}</span><span class="slate-target-prob">${p.value}</span></div>`;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'slate-overlay';
+  overlay.innerHTML = `<div class="slate-modal">
+    <div class="slate-modal-close">✕</div>
+    <div class="slate-hdr">
+      <div class="slate-weather">${weatherText ? '🌤 ' + weatherText : ''}</div>
+      <div>${isShootout ? '<span class="badge-shootout">🔥 Shootout</span>' : m.lowScoringSignal ? '<span class="badge-lowscore">🛡 Low Scoring</span>' : ''}</div>
+    </div>
+    <div class="slate-matchup">
+      <div class="slate-team">
+        <img class="slate-logo" src="${espnLogoUrl(g.awayAbbr)}" alt="${g.awayTeam}" onerror="this.style.visibility='hidden'">
+        <div class="slate-team-name">${g.awayTeam}</div>
+        <div class="slate-team-implied">${m.awayImplied ?? '—'}</div>
+      </div>
+      <div class="slate-vs">@</div>
+      <div class="slate-team">
+        <img class="slate-logo" src="${espnLogoUrl(g.homeAbbr)}" alt="${g.homeTeam}" onerror="this.style.visibility='hidden'">
+        <div class="slate-team-name">${g.homeTeam}</div>
+        <div class="slate-team-implied">${m.homeImplied ?? '—'}</div>
+      </div>
+    </div>
+    <div class="slate-meta-row">
+      <div class="slate-meta-item"><div class="slate-meta-val">${m.total ?? '—'}</div><div class="slate-meta-lbl">Total</div></div>
+      <div class="slate-meta-item"><div class="slate-meta-val">${m.homeWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.homeTeam} Win</div></div>
+      <div class="slate-meta-item"><div class="slate-meta-val">${m.awayWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.awayTeam} Win</div></div>
+    </div>
+    <div class="slate-modal-section">
+      <div class="slate-modal-section-hdr">${g.awayTeam} — Top TD Threats</div>
+      ${awayTd.slice(0, 3).map(top3Row).join('') || '<div class="gs-meta">No data</div>'}
+    </div>
+    <div class="slate-modal-section">
+      <div class="slate-modal-section-hdr">${g.homeTeam} — Top TD Threats</div>
+      ${homeTd.slice(0, 3).map(top3Row).join('') || '<div class="gs-meta">No data</div>'}
+    </div>
+    <div class="slate-modal-section">
+      <div class="slate-modal-section-hdr">Top Prop Projections (Game)</div>
+      ${allProps.slice(0, 5).map(propRow).join('') || '<div class="gs-meta">No data</div>'}
+    </div>
+  </div>`;
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeSlateModal();
+  });
+  overlay.querySelector('.slate-modal-close').addEventListener('click', closeSlateModal);
+  document.addEventListener('keydown', slateEscHandler);
+
+  document.body.appendChild(overlay);
+}
+
+function slateEscHandler(e) {
+  if (e.key === 'Escape') closeSlateModal();
+}
+
+function closeSlateModal() {
+  const overlay = document.querySelector('.slate-overlay');
+  if (overlay) overlay.remove();
+  document.removeEventListener('keydown', slateEscHandler);
 }
 
 function renderTdProps(d) {
