@@ -14,6 +14,7 @@ const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.j
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computePlayerUsage, computeDefenseAllowedToPosition, anytimeTdProb, getTdSignals } = require('../lib/td-scoring.js');
+const { recencyWindow } = require('../lib/recency-window.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -83,9 +84,9 @@ module.exports = async function handler(req, res) {
     for (const t of teamsInGame) {
       const pool = topUsagePlayersForTeam(playerRows, t.abbr, throughWeek);
       for (const candidate of pool) {
-        const usage = computePlayerUsage(playerRows, candidate.name, throughWeek);
+        const usage = computePlayerUsage(playerRows, candidate.name, throughWeek, recencyWindow(throughWeek));
         if (!usage) continue;
-        const defAllowed = computeDefenseAllowedToPosition(playerRows, t.oppAbbr, usage.position, throughWeek, 5, toNflverseAbbr);
+        const defAllowed = computeDefenseAllowedToPosition(playerRows, t.oppAbbr, usage.position, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
         const prob = anytimeTdProb(usage, defAllowed, t.implied);
         if (prob == null) continue;
         const sig = getTdSignals(usage, defAllowed, model);
