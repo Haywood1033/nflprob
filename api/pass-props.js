@@ -15,6 +15,7 @@ const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js
 const { fetchAllWeather } = require('../lib/weather.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computePassUsage, computePassDefenseAllowed, projectPassYards, getPassSignals } = require('../lib/pass-scoring.js');
+const { recencyWindow } = require('../lib/recency-window.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -76,9 +77,9 @@ module.exports = async function handler(req, res) {
     for (const t of teamsInGame) {
       const starter = starterQbForTeam(playerRows, t.abbr, throughWeek);
       if (!starter) continue;
-      const usage = computePassUsage(playerRows, starter.name, toNflverseAbbr(t.abbr), throughWeek);
+      const usage = computePassUsage(playerRows, starter.name, toNflverseAbbr(t.abbr), throughWeek, recencyWindow(throughWeek));
       if (!usage) continue;
-      const defAllowed = computePassDefenseAllowed(teamRows, t.oppAbbr, throughWeek, 5, toNflverseAbbr);
+      const defAllowed = computePassDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
       const proj = projectPassYards(usage, defAllowed, t.implied, { weather: gameWeather });
       if (!proj) continue;
       const sig = getPassSignals(usage, defAllowed, proj);
