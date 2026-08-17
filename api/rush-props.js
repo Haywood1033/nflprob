@@ -8,6 +8,7 @@ const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.j
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computeRushUsage, computeRushDefenseAllowed, projectRushYards, getRushSignals } = require('../lib/rush-scoring.js');
+const { recencyWindow } = require('../lib/recency-window.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -64,9 +65,9 @@ module.exports = async function handler(req, res) {
     for (const t of teamsInGame) {
       const pool = topRushersForTeam(playerRows, t.abbr, throughWeek);
       for (const candidate of pool) {
-        const usage = computeRushUsage(playerRows, candidate.name, toNflverseAbbr(t.abbr), throughWeek);
+        const usage = computeRushUsage(playerRows, candidate.name, toNflverseAbbr(t.abbr), throughWeek, recencyWindow(throughWeek));
         if (!usage) continue;
-        const defAllowed = computeRushDefenseAllowed(teamRows, t.oppAbbr, throughWeek, 5, toNflverseAbbr);
+        const defAllowed = computeRushDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
         const proj = projectRushYards(usage, defAllowed, t.implied);
         if (!proj) continue;
         const sig = getRushSignals(usage, defAllowed, proj);
