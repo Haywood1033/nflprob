@@ -8,6 +8,7 @@ const { fetchWeekSchedule } = require('../lib/schedule.js');
 const { fetchAllWeather } = require('../lib/weather.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
+const { recencyWindow } = require('../lib/recency-window.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000; // 30 min — team efficiency data doesn't move fast
@@ -33,8 +34,9 @@ module.exports = async function handler(req, res) {
   const weather = await fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {});
 
   const games = schedule.map(g => {
-    const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, Number(week) - 1) : null;
-    const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, Number(week) - 1) : null;
+    const tw = Number(week) - 1;
+    const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, tw, recencyWindow(tw)) : null;
+    const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, tw, recencyWindow(tw)) : null;
     const gameWeather = weather[g.homeTeam] || {};
     const model = buildGameModel(homeEff, awayEff, { weather: gameWeather });
     return { ...g, model, weather: gameWeather };
