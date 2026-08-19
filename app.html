@@ -128,6 +128,23 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .slate-modal .slate-team-implied{font-size:32px}
 .slate-modal-section{padding:12px 20px}
 .slate-modal-section-hdr{font-size:10px;font-family:var(--mono);color:var(--t3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+
+/* ── BEST PLAYS tab ── */
+.best-list{display:flex;flex-direction:column;gap:8px}
+.best-row{display:flex;align-items:center;gap:14px;background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:8px;padding:12px 16px}
+.best-row.elite{border-color:rgba(245,158,11,.3)}
+.best-row.allstar{border-color:rgba(96,165,250,.3)}
+.best-rank{font-family:var(--mono);font-size:13px;color:var(--t3);width:22px;flex-shrink:0;text-align:center}
+.best-type-tag{font-family:var(--mono);font-size:9px;font-weight:700;padding:3px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:.05em;flex-shrink:0;width:44px;text-align:center}
+.best-type-td{background:rgba(74,222,128,.1);color:var(--green);border:1px solid rgba(74,222,128,.25)}
+.best-type-rush{background:rgba(45,212,191,.1);color:var(--teal);border:1px solid rgba(45,212,191,.25)}
+.best-type-rec{background:rgba(167,139,250,.1);color:var(--purple);border:1px solid rgba(167,139,250,.25)}
+.best-type-pass{background:rgba(96,165,250,.1);color:var(--blue);border:1px solid rgba(96,165,250,.25)}
+.best-info{flex:1;min-width:0}
+.best-name{font-size:14px;font-weight:600;color:var(--t1)}
+.best-sub{font-size:11px;font-family:var(--mono);color:var(--t3);margin-top:1px}
+.best-value{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--teal);flex-shrink:0;text-align:right;min-width:70px}
+.best-badge{font-family:var(--mono);font-size:9px;font-weight:700;flex-shrink:0;text-align:right;min-width:90px}
 </style>
 </head>
 <body>
@@ -144,6 +161,7 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
     <div class="tab" data-tab="rush">Rushing Yds</div>
     <div class="tab" data-tab="rec">Receiving Yds</div>
     <div class="tab" data-tab="pass">Passing Yds</div>
+    <div class="tab" data-tab="best">Best Plays</div>
     <div class="tab" data-tab="season">Season Projections</div>
     <div class="tab" data-tab="accuracy">Accuracy</div>
   </div>
@@ -736,6 +754,139 @@ function renderPassProps(d) {
   attachFilterHandlers('pass', renderPassProps);
 }
 
+// ── BEST PLAYS: combines all four prop types, filtered to genuinely notable plays only ──
+// "True best plays" means only players who cleared a signal-backed badge threshold (Value
+// Play or higher) — NOT a full list of every player on the slate. Ranking across TD
+// probability, rushing yards, receiving yards, and passing yards (four different units)
+// uses badge tier as the primary sort (Elite > All-Star > Value — that tier already reflects
+// a fair, category-normalized "how good is this play" read, since each prop type's signal
+// stack was tuned to its own typical range), signal count as the tiebreaker within a tier,
+// and a rough 0-100 normalized value as the final tiebreaker.
+
+let bestPlaysRaw = null;
+let bestPlaysFilter = 'all';
+
+async function loadBestPlays() {
+  document.getElementById('content').innerHTML = '<div class="empty"><h3>Finding the best plays this week…</h3></div>';
+  try {
+    const [tdRes, rushRes, recRes, passRes] = await Promise.all([
+      fetch('/api/props?week=' + week).then(r => r.json()),
+      fetch('/api/rush-props?week=' + week).then(r => r.json()),
+      fetch('/api/rec-props?week=' + week).then(r => r.json()),
+      fetch('/api/pass-props?week=' + week).then(r => r.json()),
+    ]);
+    bestPlaysRaw = { td: tdRes.players || [], rush: rushRes.players || [], rec: recRes.players || [], pass: passRes.players || [] };
+    renderBestPlays();
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>';
+  }
+}
+
+function tierWeight(badge) {
+  if (!badge) return 0;
+  if (badge.label.includes('Elite')) return 3;
+  if (badge.label.includes('All-Star')) return 2;
+  if (badge.label.includes('Value')) return 1;
+  return 0;
+}
+
+function buildUnifiedBestPlays(raw) {
+  const td = raw.td.map(p => ({
+    name: p.name, propType: 'TD', typeLabel: 'TD', position: p.position, team: p.team, opponent: p.opponent,
+    displayValue: p.prob + '%', normalizedValue: (p.prob / 65) * 100,
+    signalCount: p.signalCount, badge: p.badge,
+  }));
+  const rush = raw.rush.map(p => ({
+    name: p.name, propType: 'RUSH', typeLabel: 'RUSH', position: 'RB', team: p.team, opponent: p.opponent,
+    displayValue: p.projected + ' yds', normalizedValue: Math.min(100, (p.projected / 200) * 100),
+    signalCount: p.signalCount, badge: p.badge,
+  }));
+  const rec = raw.rec.map(p => ({
+    name: p.name, propType: 'REC', typeLabel: 'REC', position: p.position, team: p.team, opponent: p.opponent,
+    displayValue: p.projected + ' yds', normalizedValue: Math.min(100, (p.projected / 150) * 100),
+    signalCount: p.signalCount, badge: p.badge,
+  }));
+  const pass = raw.pass.map(p => ({
+    name: p.name, propType: 'PASS', typeLabel: 'PASS', position: 'QB', team: p.team, opponent: p.opponent,
+    displayValue: p.projected + ' yds', normalizedValue: Math.min(100, (p.projected / 350) * 100),
+    signalCount: p.signalCount, badge: p.badge,
+  }));
+
+  const all = [...td, ...rush, ...rec, ...pass];
+
+  // The actual filter that makes this "best plays" instead of "every player": drop anyone
+  // without a badge at all — that's the model saying this play isn't notable enough to flag.
+  const notable = all.filter(p => p.badge);
+
+  notable.sort((a, b) => {
+    const tw = tierWeight(b.badge) - tierWeight(a.badge);
+    if (tw !== 0) return tw;
+    const sc = b.signalCount - a.signalCount;
+    if (sc !== 0) return sc;
+    return b.normalizedValue - a.normalizedValue;
+  });
+
+  return notable;
+}
+
+function renderBestPlays() {
+  if (!bestPlaysRaw) return;
+  document.getElementById('statusText').textContent = 'Live';
+
+  const all = buildUnifiedBestPlays(bestPlaysRaw);
+  const filtered = bestPlaysFilter === 'all' ? all : all.filter(p => p.propType === bestPlaysFilter);
+  const shown = filtered.slice(0, 20); // curated cap — "best plays," not a full leaderboard
+
+  const pillsHTML = `<div class="filter-bar">
+    <div class="pos-pills">
+      <div class="pos-pill${bestPlaysFilter === 'all' ? ' on' : ''}" data-best-filter="all">All</div>
+      <div class="pos-pill${bestPlaysFilter === 'TD' ? ' on' : ''}" data-best-filter="TD">Anytime TD</div>
+      <div class="pos-pill${bestPlaysFilter === 'RUSH' ? ' on' : ''}" data-best-filter="RUSH">Rushing</div>
+      <div class="pos-pill${bestPlaysFilter === 'REC' ? ' on' : ''}" data-best-filter="REC">Receiving</div>
+      <div class="pos-pill${bestPlaysFilter === 'PASS' ? ' on' : ''}" data-best-filter="PASS">Passing</div>
+    </div>
+    <span class="filter-count">${shown.length} of ${filtered.length} notable plays</span>
+  </div>`;
+
+  if (!shown.length) {
+    document.getElementById('content').innerHTML = pillsHTML + '<div class="empty"><h3>No notable plays match this filter</h3><div>Try a different category, or check back once more signal data is available.</div></div>';
+    attachBestPlaysHandlers();
+    return;
+  }
+
+  const typeClass = { TD: 'best-type-td', RUSH: 'best-type-rush', REC: 'best-type-rec', PASS: 'best-type-pass' };
+  const rowClass = (badge) => badge.label.includes('Elite') ? ' elite' : badge.label.includes('All-Star') ? ' allstar' : '';
+
+  const rows = shown.map((p, i) => `<div class="best-row${rowClass(p.badge)}">
+    <div class="best-rank">${i + 1}</div>
+    <div class="best-type-tag ${typeClass[p.propType]}">${p.typeLabel}</div>
+    <div class="best-info">
+      <div class="best-name">${p.name}${p.position ? ` <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.position})</span>` : ''}</div>
+      <div class="best-sub">${p.team} vs ${p.opponent}</div>
+    </div>
+    <div class="best-value">${p.displayValue}</div>
+    <div class="best-badge" style="color:${p.badge.color}">${p.badge.label}</div>
+  </div>`).join('');
+
+  document.getElementById('content').innerHTML = pillsHTML + `<div class="best-list">${rows}</div>
+    <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
+      Only plays that cleared a signal-backed badge (Value Play or higher) show here — this
+      is a curated list, not every player on the slate. Ranked by badge tier first, then
+      signal count, then a normalized value score to compare fairly across prop types.
+    </div>`;
+
+  attachBestPlaysHandlers();
+}
+
+function attachBestPlaysHandlers() {
+  document.querySelectorAll('[data-best-filter]').forEach(pill => {
+    pill.addEventListener('click', () => {
+      bestPlaysFilter = pill.dataset.bestFilter;
+      renderBestPlays();
+    });
+  });
+}
+
 let seasonCategory = 'wins';
 const seasonRawData = { wins: null, td: null, rush: null, rec: null, pass: null };
 
@@ -849,6 +1000,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   else if (currentTab === 'rush') loadRushProps();
   else if (currentTab === 'rec') loadRecProps();
   else if (currentTab === 'pass') loadPassProps();
+  else if (currentTab === 'best') loadBestPlays();
   else if (currentTab === 'season') loadSeasonCategory(seasonCategory);
   else {
     document.getElementById('content').innerHTML = '<div class="empty"><h3>Not built yet</h3><div>This tab is next up in the build order.</div></div>';
