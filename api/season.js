@@ -1,22 +1,20 @@
 // api/season.js — Season-long projections (team wins, TD/rush/rec/pass yardage totals)
 //
+// ROSTER FILTERING (new): same fix as the four weekly prop endpoints — candidate pools are
+// built from usage history, which has no way to know about offseason releases/trades. Every
+// distinct team's current roster is prefetched once (parallelized, same pattern proven in
+// the weekly endpoints) and every candidate is cross-checked before being projected.
+//
 // DESIGN: rather than inventing new "strength of schedule" logic, this calls the SAME
 // per-game models already built and tested (buildGameModel, anytimeTdProb, projectRushYards,
 // projectRecYards, projectPassYards) once for every remaining game on each team's real
-// schedule, using that specific opponent's actual defensive numbers each time — SOS and
-// home/road context fall out of that naturally, since every game uses real opponent-specific
-// inputs rather than a single averaged multiplier.
+// schedule, using that specific opponent's actual defensive numbers each time.
 //
-// Season total = sum of each game's per-game projection across the full season. For TD
-// probability specifically, summing per-game probabilities approximates expected season TD
-// count (assumes independence across games — a simplification, not an exact distribution).
-//
-// KNOWN LIMITATIONS (same as the weekly prop endpoints, worth repeating here):
-// - Player pools are usage-based, not roster/injury-confirmed.
-// - lib/season-schedule.js is unverified against a live ESPN response (sandbox can't reach
-//   ESPN at all — see that file's header for details).
-// - This is a framework/plumbing pass, not a calibrated model — same as every other tab,
-//   per the explicit scoping decision to build structure first and dial in accuracy later.
+// KNOWN LIMITATIONS:
+// - This is a framework/plumbing pass, not a calibrated model.
+// - This endpoint makes a LOT of calls (32 teams x up to 17 games x several candidates per
+//   category) — worth watching real timing on this one even after the indexing and
+//   parallelization fixes, since it's the heaviest single endpoint in the app.
 
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
@@ -27,19 +25,13 @@ const { computeRushUsage, computeRushDefenseAllowed, projectRushYards } = requir
 const { computeRecUsage, computeRecDefenseAllowed, projectRecYards } = require('../lib/rec-scoring.js');
 const { computePassUsage, computePassDefenseAllowed, projectPassYards } = require('../lib/pass-scoring.js');
 const { ESPN_TEAM_NAME } = require('../lib/schedule.js');
+const { recencyWindow } = require('../lib/recency-window.js');
+const { fetchTeamRoster, isOnRoster } = require('../lib/roster.js');
 
 let cache = { data: {}, timestamp: {} };
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour — season projections don't need to be as fresh as weekly props
+const CACHE_TTL = 60 * 60 * 1000;
 
-const ALL_TEAMS = Object.keys(ESPN_TEAM_NAME); // 32 ESPN abbreviations
-
-// Season projections should be anchored on a FULL season's per-game rate, not the weekly
-// tabs' 5-game recency window — a short recent stretch (e.g. an unusually hot or cold 5
-// games) is appropriate for "what's this player doing right now" but produces unrealistic
-// season-long extrapolations when multiplied across 17 games. 18 covers a full regular
-// season with margin; playoffs are already excluded everywhere via the season_type==='REG'
-// filter baked into each usage function.
-const SEASON_WINDOW = 18;
+const ALL_TEAMS = Object.keys(ESPN_TEAM_NAME);
 
 function topByVolume(playerRows, teamEspnAbbr, throughWeek, positions, volumeField, count) {
   const team = toNflverseAbbr(teamEspnAbbr);
@@ -58,7 +50,7 @@ function topByVolume(playerRows, teamEspnAbbr, throughWeek, positions, volumeFie
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
 
-  const category = req.query.category || 'wins'; // wins | td | rush | rec | pass
+  const category = req.query.category || 'wins';
   const year = req.query.year || new Date().getFullYear();
 
   const cacheKey = category;
@@ -73,23 +65,24 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({ category, results: [], error: 'Team or player stats unavailable' });
   }
 
-  const throughWeek = 0; // preseason: every team's "recent form" is its most recent available sample, same base for every remaining game
+  const throughWeek = 0;
+  const window = recencyWindow(throughWeek);
 
-  // Precompute each team's own efficiency ONCE — reused across every opponent's schedule
   const teamEffByAbbr = {};
-  for (const abbr of ALL_TEAMS) teamEffByAbbr[abbr] = computeTeamEfficiency(teamRows, abbr, throughWeek, SEASON_WINDOW);
+  for (const abbr of ALL_TEAMS) teamEffByAbbr[abbr] = computeTeamEfficiency(teamRows, abbr, throughWeek, window);
 
-  // Fetch every team's full season schedule ONCE
   const schedules = {};
-  await Promise.all(ALL_TEAMS.map(async (abbr) => {
-    schedules[abbr] = await fetchTeamSeasonSchedule(abbr, year);
-  }));
+  const rosterCache = {};
+  await Promise.all([
+    Promise.all(ALL_TEAMS.map(async (abbr) => { schedules[abbr] = await fetchTeamSeasonSchedule(abbr, year); })),
+    Promise.all(ALL_TEAMS.map(async (abbr) => { rosterCache[abbr] = await fetchTeamRoster(abbr); })),
+  ]);
 
   const missingSchedules = ALL_TEAMS.filter(a => !schedules[a]?.length);
   if (missingSchedules.length === ALL_TEAMS.length) {
     return res.status(200).json({
       category, results: [],
-      error: 'No season schedules returned from ESPN — lib/season-schedule.js is unverified against a live response, this may be a field-mapping issue. Check the file header for what to inspect first.',
+      error: 'No season schedules returned from ESPN.',
     });
   }
 
@@ -130,13 +123,14 @@ module.exports = async function handler(req, res) {
     for (const abbr of ALL_TEAMS) {
       const schedule = schedules[abbr];
       if (!schedule?.length) continue;
+      const roster = rosterCache[abbr];
 
       const rbPool = topByVolume(playerRows, abbr, throughWeek, ['RB'], 'carries', 2);
       const wrTePool = topByVolume(playerRows, abbr, throughWeek, ['WR', 'TE'], 'targets', 3);
-      const pool = [...rbPool, ...wrTePool];
+      const pool = [...rbPool, ...wrTePool].filter(c => isOnRoster(roster, c.name));
 
       for (const candidate of pool) {
-        const usage = computePlayerUsage(playerRows, candidate.name, throughWeek, SEASON_WINDOW);
+        const usage = computePlayerUsage(playerRows, candidate.name, throughWeek, window);
         if (!usage) continue;
 
         let seasonProb = 0, gamesRemaining = 0;
@@ -146,7 +140,7 @@ module.exports = async function handler(req, res) {
           const oppEff = teamEffByAbbr[g.oppAbbr];
           const model = g.isHome ? buildGameModel(teamEffByAbbr[abbr], oppEff, {}) : buildGameModel(oppEff, teamEffByAbbr[abbr], {});
           const teamImplied = g.isHome ? model.homeImplied : model.awayImplied;
-          const defAllowed = computeDefenseAllowedToPosition(playerRows, g.oppAbbr, usage.position, throughWeek, SEASON_WINDOW, toNflverseAbbr);
+          const defAllowed = computeDefenseAllowedToPosition(playerRows, g.oppAbbr, usage.position, throughWeek, window, toNflverseAbbr);
           const prob = anytimeTdProb(usage, defAllowed, teamImplied);
           if (prob != null) seasonProb += prob / 100;
         }
@@ -164,22 +158,25 @@ module.exports = async function handler(req, res) {
     for (const abbr of ALL_TEAMS) {
       const schedule = schedules[abbr];
       if (!schedule?.length) continue;
+      const roster = rosterCache[abbr];
 
       let pool;
       if (category === 'rush') pool = topByVolume(playerRows, abbr, throughWeek, ['RB'], 'carries', 2);
       else if (category === 'rec') pool = topByVolume(playerRows, abbr, throughWeek, ['WR', 'TE'], 'targets', 3);
       else pool = topByVolume(playerRows, abbr, throughWeek, ['QB'], 'attempts', 1);
 
+      pool = pool.filter(c => isOnRoster(roster, c.name));
+
       for (const candidate of pool) {
         let usage, computeDefFn, projectFn;
         if (category === 'rush') {
-          usage = computeRushUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek, SEASON_WINDOW);
+          usage = computeRushUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek, window);
           computeDefFn = computeRushDefenseAllowed; projectFn = projectRushYards;
         } else if (category === 'rec') {
-          usage = computeRecUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek, SEASON_WINDOW);
+          usage = computeRecUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek, window);
           computeDefFn = computeRecDefenseAllowed; projectFn = projectRecYards;
         } else {
-          usage = computePassUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek, SEASON_WINDOW);
+          usage = computePassUsage(playerRows, candidate.name, toNflverseAbbr(abbr), throughWeek, window);
           computeDefFn = computePassDefenseAllowed; projectFn = projectPassYards;
         }
         if (!usage) continue;
@@ -191,7 +188,7 @@ module.exports = async function handler(req, res) {
           const oppEff = teamEffByAbbr[g.oppAbbr];
           const model = g.isHome ? buildGameModel(teamEffByAbbr[abbr], oppEff, {}) : buildGameModel(oppEff, teamEffByAbbr[abbr], {});
           const teamImplied = g.isHome ? model.homeImplied : model.awayImplied;
-          const defAllowed = computeDefFn(teamRows, g.oppAbbr, throughWeek, SEASON_WINDOW, toNflverseAbbr);
+          const defAllowed = computeDefFn(teamRows, g.oppAbbr, throughWeek, window, toNflverseAbbr);
           const proj = projectFn(usage, defAllowed, teamImplied);
           if (proj) seasonYards += proj.projected;
         }
