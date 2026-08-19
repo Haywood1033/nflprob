@@ -51,7 +51,10 @@ module.exports = async function handler(req, res) {
 
   const throughWeek = Number(week) - 1;
   const players = [];
-  const rosterCache = {};
+
+  const distinctAbbrs = [...new Set(schedule.flatMap(g => [g.homeAbbr, g.awayAbbr]))];
+  const rosterEntries = await Promise.all(distinctAbbrs.map(async abbr => [abbr, await fetchTeamRoster(abbr)]));
+  const rosterCache = Object.fromEntries(rosterEntries);
 
   for (const g of schedule) {
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek) : null;
@@ -64,9 +67,6 @@ module.exports = async function handler(req, res) {
     ];
 
     for (const t of teamsInGame) {
-      if (!(t.abbr in rosterCache)) {
-        rosterCache[t.abbr] = await fetchTeamRoster(t.abbr);
-      }
       const roster = rosterCache[t.abbr];
 
       const pool = topReceiversForTeam(playerRows, t.abbr, throughWeek);
