@@ -1,7 +1,12 @@
-// api/rush-props.js — Rushing yards player props endpoint (step 3a of the build order)
-// Same structure and same known limitation as api/props.js: player pool is usage-based
-// (top carries over the last 5 games), NOT a confirmed active roster/injury report for
-// the upcoming week.
+// api/rush-props.js — Rushing yards player props endpoint
+//
+// ROSTER FILTERING (new): candidate pools are built from usage history (who carried the
+// ball for this team recently), which has no way to know about offseason releases/trades.
+// Real example that surfaced this: Kenny Gainwell's 2025 game logs say Steelers, but he
+// wasn't re-signed for 2026 — nothing in the usage history reflects that. Fixed by cross-
+// checking each candidate against ESPN's CURRENT roster (lib/roster.js, verified against a
+// real response) before computing a projection for them. If the roster fetch fails, this
+// fails open (doesn't filter) rather than silently showing nobody.
 
 const { fetchWeekSchedule } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
@@ -9,6 +14,7 @@ const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computeRushUsage, computeRushDefenseAllowed, projectRushYards, getRushSignals } = require('../lib/rush-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
+const { fetchTeamRoster, isOnRoster, isHealthy } = require('../lib/roster.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -51,6 +57,7 @@ module.exports = async function handler(req, res) {
 
   const throughWeek = Number(week) - 1;
   const players = [];
+  const rosterCache = {}; // teamAbbr -> roster, avoid refetching the same team's roster twice in one request
 
   for (const g of schedule) {
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek) : null;
@@ -63,8 +70,17 @@ module.exports = async function handler(req, res) {
     ];
 
     for (const t of teamsInGame) {
+      if (!(t.abbr in rosterCache)) {
+        rosterCache[t.abbr] = await fetchTeamRoster(t.abbr);
+      }
+      const roster = rosterCache[t.abbr];
+
       const pool = topRushersForTeam(playerRows, t.abbr, throughWeek);
       for (const candidate of pool) {
+        // Skip anyone not on the team's CURRENT roster — this is what actually fixes the
+        // Gainwell-style bug, not just a cosmetic filter.
+        if (!isOnRoster(roster, candidate.name)) continue;
+
         const usage = computeRushUsage(playerRows, candidate.name, toNflverseAbbr(t.abbr), throughWeek, recencyWindow(throughWeek));
         if (!usage) continue;
         const defAllowed = computeRushDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
@@ -84,6 +100,8 @@ module.exports = async function handler(req, res) {
           signalCount: sig.count,
           badge: sig.badge,
           ci: sig.ci,
+          injured: !isHealthy(roster, candidate.name),
+          injuryStatus: roster?.[candidate.name]?.injuryStatus || null,
         });
       }
     }
