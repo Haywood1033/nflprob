@@ -145,6 +145,12 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .best-sub{font-size:11px;font-family:var(--mono);color:var(--t3);margin-top:1px}
 .best-value{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--teal);flex-shrink:0;text-align:right;min-width:70px}
 .best-badge{font-family:var(--mono);font-size:9px;font-weight:700;flex-shrink:0;text-align:right;min-width:90px}
+
+/* ── Signal chips: show individual flags, not just composite badge ── */
+.sig-chips{display:flex;gap:4px;flex-wrap:wrap;max-width:180px}
+.sig-chip{font-family:var(--mono);font-size:8px;font-weight:700;padding:2px 6px;border-radius:3px;white-space:nowrap;letter-spacing:.02em}
+.sig-chip.on{background:rgba(45,212,191,.12);color:var(--teal);border:1px solid rgba(45,212,191,.3)}
+.sig-chip.off{background:rgba(255,255,255,.03);color:var(--t3);border:1px solid rgba(255,255,255,.08)}
 </style>
 </head>
 <body>
@@ -393,6 +399,21 @@ async function loadTdProps() {
   }
 }
 
+// Short codes for signal labels so chips fit in a table cell — full label still shows on hover.
+const SIGNAL_ABBR = {
+  'High Usage': 'USE', 'High Volume': 'VOL', 'Favorable Matchup': 'MATCH',
+  'Hot Streak': 'HOT', 'Shootout Game': 'SHOOT', 'Featured Role': 'ROLE',
+  'Sample Confidence': 'CONF', 'Bellcow Volume': 'BCOW', 'Featured Target': 'TGT',
+  'Pass-Heavy Script': 'SCRIPT',
+};
+
+function signalChipsHTML(signals) {
+  if (!signals || !signals.length) return '<span style="color:var(--t3);font-size:10px">—</span>';
+  return `<div class="sig-chips">${signals.map(s =>
+    `<span class="sig-chip ${s.active ? 'on' : 'off'}" title="${s.label}${s.active ? ' — active' : ' — not met'}">${SIGNAL_ABBR[s.label] || s.label}</span>`
+  ).join('')}</div>`;
+}
+
 function espnLogoUrl(abbr) {
   return abbr ? `https://a.espncdn.com/i/teamlogos/nfl/500/${abbr.toLowerCase()}.png` : '';
 }
@@ -574,18 +595,20 @@ function renderTdProps(d) {
       <td class="td-team">${p.team} vs ${p.opponent}</td>
       <td class="td-prob">${p.prob}%</td>
       <td class="td-touch">${p.touches}</td>
+      <td>${signalChipsHTML(p.signals)}</td>
       <td>${badgeHtml}</td>
     </tr>`;
   }).join('');
 
   document.getElementById('content').innerHTML = filterBarHTML + `
     <table class="td-table">
-      <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th>Anytime TD%</th><th>Touches (L5)</th><th>Signal</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
+      <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th>Anytime TD%</th><th>Touches (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
-      Player pool is roster-verified against ESPN's current roster. Injured players are
-      flagged but still shown for reference.
+      Player pool is roster-verified against ESPN's current roster. Signal chips show every
+      individual flag (hover for the full label) — a player can be flagging real signals
+      without hitting the full threshold for a badge.
     </div>
   `;
 
@@ -628,14 +651,15 @@ function renderRushProps(d) {
       <td class="td-prob">${p.projected}</td>
       <td class="td-touch">${p.floor}–${p.ceiling}</td>
       <td class="td-touch">${p.carries}</td>
+      <td>${signalChipsHTML(p.signals)}</td>
       <td>${badgeHtml}</td>
     </tr>`;
   }).join('');
 
   document.getElementById('content').innerHTML = filterBarHTML + `
     <table class="td-table">
-      <thead><tr><th>Player</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Carries (L5)</th><th>Signal</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
+      <thead><tr><th>Player</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Carries (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
       Projection is a mean estimate with a rough floor/ceiling range. Player pool is
@@ -683,14 +707,15 @@ function renderRecProps(d) {
       <td class="td-prob">${p.projected}</td>
       <td class="td-touch">${p.floor}–${p.ceiling}</td>
       <td class="td-touch">${p.targets}</td>
+      <td>${signalChipsHTML(p.signals)}</td>
       <td>${badgeHtml}</td>
     </tr>`;
   }).join('');
 
   document.getElementById('content').innerHTML = filterBarHTML + `
     <table class="td-table">
-      <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Targets (L5)</th><th>Signal</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
+      <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Targets (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
       WR/TE only. Player pool is roster-verified against ESPN's current roster.
@@ -736,14 +761,15 @@ function renderPassProps(d) {
       <td class="td-prob">${p.projected}</td>
       <td class="td-touch">${p.floor}–${p.ceiling}</td>
       <td class="td-touch">${p.attempts}</td>
+      <td>${signalChipsHTML(p.signals)}</td>
       <td>${badgeHtml}</td>
     </tr>`;
   }).join('');
 
   document.getElementById('content').innerHTML = filterBarHTML + `
     <table class="td-table">
-      <thead><tr><th>QB</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Attempts (L5)</th><th>Signal</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
+      <thead><tr><th>QB</th><th>Matchup</th><th>Proj Yds</th><th>Floor–Ceiling</th><th>Attempts (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
       One starter per team, walked down the usage-ranked list until a still-rostered QB is
