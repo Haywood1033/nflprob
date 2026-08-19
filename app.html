@@ -6,7 +6,6 @@
 <title>NFLProb</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-/* ── DESIGN TOKENS — copied 1:1 from HR engine for brand continuity ── */
 :root{--bg:#0a0e1a;--bg2:#0e1422;--bg3:#141e2e;--bd:rgba(255,255,255,0.10);--bd2:rgba(255,255,255,0.16);--t1:rgba(255,255,255,0.92);--t2:rgba(255,255,255,0.45);--t3:rgba(255,255,255,0.25);--teal:#2dd4bf;--green:#4ade80;--amber:#f59e0b;--red:#f87171;--purple:#a78bfa;--blue:#60a5fa;--mono:'Space Mono',monospace;--sans:'DM Sans',system-ui,sans-serif;--r:8px}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px;min-height:100vh;overflow-x:hidden}
@@ -45,7 +44,6 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .td-prob{font-family:var(--mono);font-weight:700;color:var(--teal)}
 .td-touch{font-family:var(--mono);font-size:12px;color:var(--t3)}
 
-/* ── THIS WEEK landing tab ── */
 .game-strip{display:flex;gap:10px;overflow-x:auto;padding-bottom:10px;margin-bottom:16px;scrollbar-width:thin}
 .gs-card{flex-shrink:0;width:180px;background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:8px;padding:10px 12px;cursor:pointer;transition:border-color .15s}
 .gs-card:hover{border-color:var(--teal)}
@@ -87,9 +85,16 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .game-lean-teams{font-weight:600;color:var(--t1)}
 .game-lean-meta{display:flex;gap:14px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--t3)}
 
-/* ── SLATE tab: square game cards ── */
+.filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.matchup-select{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.16);border-radius:6px;color:var(--t1);font-family:var(--mono);font-size:12px;padding:7px 12px;cursor:pointer;min-width:200px}
+.matchup-select:focus{outline:none;border-color:var(--teal)}
+.pos-pills{display:flex;gap:6px}
+.pos-pill{padding:6px 13px;font-size:11px;font-weight:600;cursor:pointer;border-radius:20px;color:var(--t3);border:0.5px solid rgba(255,255,255,0.14);font-family:var(--mono);transition:all .15s;background:transparent}
+.pos-pill.on{color:var(--teal);background:rgba(45,212,191,.1);border-color:rgba(45,212,191,.3)}
+.filter-count{font-size:11px;font-family:var(--mono);color:var(--t3);margin-left:auto}
+
 .slate-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
-.slate-card{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:10px;overflow:hidden;transition:border-color .15s}
+.slate-card{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:10px;overflow:hidden;transition:border-color .15s;cursor:pointer}
 .slate-card:hover{border-color:rgba(45,212,191,.3)}
 .slate-card.shootout{border-color:rgba(245,158,11,.3)}
 .slate-hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg3);border-bottom:0.5px solid var(--bd)}
@@ -111,7 +116,6 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .slate-target-prob{color:var(--teal);font-family:var(--mono);font-weight:700}
 .slate-top-prop{padding:10px 14px;background:rgba(167,139,250,.06);border-top:0.5px solid var(--bg3)}
 .slate-top-prop-lbl{font-size:9px;font-family:var(--mono);color:var(--purple);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
-.slate-card{cursor:pointer}
 
 .slate-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(2px);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .15s ease}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -123,15 +127,6 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .slate-modal .slate-team-implied{font-size:32px}
 .slate-modal-section{padding:12px 20px}
 .slate-modal-section-hdr{font-size:10px;font-family:var(--mono);color:var(--t3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
-
-/* ── Filter bar: matchup dropdown + position pills ── */
-.filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
-.matchup-select{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.16);border-radius:6px;color:var(--t1);font-family:var(--mono);font-size:12px;padding:7px 12px;cursor:pointer;min-width:200px}
-.matchup-select:focus{outline:none;border-color:var(--teal)}
-.pos-pills{display:flex;gap:6px}
-.pos-pill{padding:6px 13px;font-size:11px;font-weight:600;cursor:pointer;border-radius:20px;color:var(--t3);border:0.5px solid rgba(255,255,255,0.14);font-family:var(--mono);transition:all .15s;background:transparent}
-.pos-pill.on{color:var(--teal);background:rgba(45,212,191,.1);border-color:rgba(45,212,191,.3)}
-.filter-count{font-size:11px;font-family:var(--mono);color:var(--t3);margin-left:auto}
 </style>
 </head>
 <body>
@@ -163,7 +158,6 @@ document.getElementById('weekLabel').textContent = 'Week ' + week;
 
 let currentTab = 'week';
 
-// ── Filter state + raw data cache (so filtering re-renders instantly, no refetch) ──
 const rawData = { td: null, rush: null, rec: null, pass: null };
 const filterState = {
   td:   { matchup: 'all', position: 'all' },
@@ -172,7 +166,6 @@ const filterState = {
   pass: { matchup: 'all' },
 };
 
-// Sorted team pair so both sides of a game produce the same matchup key/label
 function matchupKey(p) {
   return [p.team, p.opponent].sort().join(' vs ');
 }
@@ -251,7 +244,6 @@ function renderThisWeek(teamData, propsData) {
     return;
   }
 
-  // ── Game strip: top TD threat per team, implied total, shootout lean ──
   const stripHTML = '<div class="game-strip">' + games.map(g => {
     const m = g.model || {};
     const awayTop = players.filter(p => p.team === g.awayTeam).sort((a,b)=>b.prob-a.prob)[0];
@@ -277,7 +269,6 @@ function renderThisWeek(teamData, propsData) {
     </div>`;
   }).join('') + '</div>';
 
-  // ── KPI row ──
   const shootoutCount = games.filter(g => g.model?.shootoutSignal).length;
   const eliteCount = players.filter(p => p.badge?.label.includes('Elite')).length;
   const signalPlays = players.filter(p => p.signalCount >= 3);
@@ -288,9 +279,6 @@ function renderThisWeek(teamData, propsData) {
     <div class="today-kpi"><div class="today-kpi-val" style="color:var(--green)">${eliteCount}</div><div class="today-kpi-lbl">Elite Plays</div></div>
   </div>`;
 
-  // ── Best Play: composite score, probability-dominant with signal count as modest boost ──
-  // (same weighting philosophy as the HR engine's scorePlayer — prob*3 + count*5,
-  // so a 7% player with 4 signals can't outrank a 50% player with 2 signals)
   const scorePlayer = (p) => p.prob * 3 + p.signalCount * 5;
   const best = players.length ? [...players].sort((a,b) => scorePlayer(b) - scorePlayer(a))[0] : null;
 
@@ -309,7 +297,6 @@ function renderThisWeek(teamData, propsData) {
     </div>
   </div>` : '';
 
-  // ── Top TD Targets / Top Signal Plays, two-column ──
   const top5 = [...players].sort((a,b)=>b.prob-a.prob).slice(0,5);
   const top5HTML = top5.map((p,i) => `<div class="today-target">
     <div class="today-target-rank">${i+1}</div>
@@ -332,7 +319,6 @@ function renderThisWeek(teamData, propsData) {
     </div>
   </div>`).join('') || '<div class="gs-meta" style="padding:8px 0">No signal plays this week</div>';
 
-  // ── Game Leans: condensed team-model summary per game ──
   const leansHTML = games.map(g => {
     const m = g.model || {};
     const lean = m.shootoutSignal ? '🔥 Shootout' : m.lowScoringSignal ? '🛡 Low Scoring' : '';
@@ -388,8 +374,6 @@ async function loadTdProps() {
   }
 }
 
-// ESPN's public logo CDN — unverified against a live response like the rest of the ESPN
-// integration, but follows the same documented pattern used elsewhere (lowercase abbr).
 function espnLogoUrl(abbr) {
   return abbr ? `https://a.espncdn.com/i/teamlogos/nfl/500/${abbr.toLowerCase()}.png` : '';
 }
@@ -404,7 +388,7 @@ function weatherLabel(w) {
   return parts.join(' · ');
 }
 
-let slateGames = []; // stores computed per-game data so the modal can look it up without recomputation
+let slateGames = [];
 
 function renderTeamModel(d, props) {
   document.getElementById('statusText').textContent = d.cached ? 'Cached' : 'Live';
@@ -455,6 +439,7 @@ function renderTeamModel(d, props) {
       </div>
       <div class="slate-meta-row">
         <div class="slate-meta-item"><div class="slate-meta-val">${m.total ?? '—'}</div><div class="slate-meta-lbl">Total</div></div>
+        <div class="slate-meta-item"><div class="slate-meta-val">${m.awayWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.awayTeam} Win</div></div>
         <div class="slate-meta-item"><div class="slate-meta-val">${m.homeWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.homeTeam} Win</div></div>
       </div>
       <div class="slate-targets">
@@ -477,7 +462,7 @@ function renderTeamModel(d, props) {
 }
 
 function openSlateModal(idx) {
-  closeSlateModal(); // guard against a duplicate overlay if triggered twice quickly
+  closeSlateModal();
   const sg = slateGames[idx];
   if (!sg) return;
   const { g, m, homeTd, awayTd, allProps, weatherText } = sg;
@@ -509,8 +494,8 @@ function openSlateModal(idx) {
     </div>
     <div class="slate-meta-row">
       <div class="slate-meta-item"><div class="slate-meta-val">${m.total ?? '—'}</div><div class="slate-meta-lbl">Total</div></div>
-      <div class="slate-meta-item"><div class="slate-meta-val">${m.homeWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.homeTeam} Win</div></div>
       <div class="slate-meta-item"><div class="slate-meta-val">${m.awayWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.awayTeam} Win</div></div>
+      <div class="slate-meta-item"><div class="slate-meta-val">${m.homeWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.homeTeam} Win</div></div>
     </div>
     <div class="slate-modal-section">
       <div class="slate-modal-section-hdr">${g.awayTeam} — Top TD Threats</div>
@@ -580,8 +565,8 @@ function renderTdProps(d) {
       <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
-      Player pool is usage-based (top targets/carries over last 5 games), not yet a confirmed
-      active roster for this week — injury/inactive filtering isn't wired up yet.
+      Player pool is roster-verified against ESPN's current roster. Injured players are
+      flagged but still shown for reference.
     </div>
   `;
 
@@ -634,11 +619,8 @@ function renderRushProps(d) {
       <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
-      Projection is a mean estimate with a rough floor/ceiling range based on the player's own
-      recent-game variance — not a fitted statistical distribution. There's no sportsbook line
-      to compute "probability of clearing X" against (free-data-only decision from scoping),
-      so this shows a projected value rather than an over/under percentage. Player pool is
-      usage-based, not yet a confirmed active roster for this week.
+      Projection is a mean estimate with a rough floor/ceiling range. Player pool is
+      roster-verified against ESPN's current roster.
     </div>
   `;
 
@@ -692,11 +674,7 @@ function renderRecProps(d) {
       <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
-      WR/TE only (RB receiving isn't covered here). Projection is a mean estimate with a rough
-      floor/ceiling range based on the player's own recent-game variance — not a fitted
-      statistical distribution. No sportsbook line to grade against, so this shows a projected
-      value rather than an over/under percentage. Player pool is usage-based, not yet a
-      confirmed active roster for this week.
+      WR/TE only. Player pool is roster-verified against ESPN's current roster.
     </div>
   `;
 
@@ -749,10 +727,8 @@ function renderPassProps(d) {
       <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
-      One starter per team (top-attempts QB over the last 5 games) — this does NOT account
-      for a starter being injured/inactive this week, since that needs real injury data we
-      don't have wired in yet. Projection is a mean estimate with a rough floor/ceiling range,
-      not a fitted statistical distribution or a line-based probability.
+      One starter per team, walked down the usage-ranked list until a still-rostered QB is
+      found. Projection is a mean estimate, not a fitted statistical distribution.
     </div>
   `;
 
@@ -849,11 +825,8 @@ function renderSeasonProjections(d) {
   document.getElementById('content').innerHTML = pillsHTML + table + `
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
       Season total = sum of each team's real remaining schedule, run through the same
-      per-game models used in the weekly tabs (opponent-specific, home/road aware) — not a
-      separately-invented "strength of schedule" number. Framework/plumbing pass, not yet
-      calibrated: early-season projections can amplify small-sample noise from the current
-      recent-form window across all 17 games, so yardage leaders in particular may look
-      inflated until real 2026 data accumulates and the per-game models firm up.
+      per-game models used in the weekly tabs. Framework/plumbing pass, not yet calibrated,
+      and does not yet have roster filtering applied.
     </div>
   `;
   attachSeasonPillHandlers();
