@@ -57,7 +57,15 @@ module.exports = async function handler(req, res) {
 
   const throughWeek = Number(week) - 1;
   const players = [];
-  const rosterCache = {}; // teamAbbr -> roster, avoid refetching the same team's roster twice in one request
+
+  // PERFORMANCE FIX: the old version did `await fetchTeamRoster(t.abbr)` inside a nested
+  // per-game/per-team loop — sequential, one round-trip at a time. For a full 16-game slate
+  // that's up to 32 sequential ESPN calls, and this endpoint is one of four the Slate tab
+  // loads together. Prefetching every distinct team's roster in parallel up front turns 32
+  // sequential round-trips into the latency of just the slowest single one.
+  const distinctAbbrs = [...new Set(schedule.flatMap(g => [g.homeAbbr, g.awayAbbr]))];
+  const rosterEntries = await Promise.all(distinctAbbrs.map(async abbr => [abbr, await fetchTeamRoster(abbr)]));
+  const rosterCache = Object.fromEntries(rosterEntries);
 
   for (const g of schedule) {
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek) : null;
@@ -70,9 +78,6 @@ module.exports = async function handler(req, res) {
     ];
 
     for (const t of teamsInGame) {
-      if (!(t.abbr in rosterCache)) {
-        rosterCache[t.abbr] = await fetchTeamRoster(t.abbr);
-      }
       const roster = rosterCache[t.abbr];
 
       const pool = topRushersForTeam(playerRows, t.abbr, throughWeek);
