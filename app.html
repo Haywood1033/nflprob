@@ -105,8 +105,9 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .slate-team-name{font-size:11px;font-weight:600;color:var(--t1);text-align:center}
 .slate-team-implied{font-size:24px;font-weight:700;font-family:var(--mono);color:var(--t1)}
 .slate-vs{font-size:10px;font-family:var(--mono);color:var(--t3);padding:0 8px}
-.slate-meta-row{display:flex;justify-content:space-around;padding:10px 14px;border-top:0.5px solid var(--bg3);border-bottom:0.5px solid var(--bg3)}
-.slate-meta-item{text-align:center}
+.slate-meta-row{display:flex;align-items:center;padding:10px 14px;border-top:0.5px solid var(--bg3);border-bottom:0.5px solid var(--bg3)}
+.slate-meta-item{flex:1;text-align:center}
+.slate-meta-item.center{flex:0 0 auto;padding:0 14px}
 .slate-meta-val{font-size:14px;font-weight:700;font-family:var(--mono);color:var(--teal)}
 .slate-meta-lbl{font-size:9px;font-family:var(--mono);color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
 .slate-targets{padding:10px 14px}
@@ -438,8 +439,8 @@ function renderTeamModel(d, props) {
         </div>
       </div>
       <div class="slate-meta-row">
-        <div class="slate-meta-item"><div class="slate-meta-val">${m.total ?? '—'}</div><div class="slate-meta-lbl">Total</div></div>
         <div class="slate-meta-item"><div class="slate-meta-val">${m.awayWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.awayTeam} Win</div></div>
+        <div class="slate-meta-item center"><div class="slate-meta-val">${m.total ?? '—'}</div><div class="slate-meta-lbl">Total</div></div>
         <div class="slate-meta-item"><div class="slate-meta-val">${m.homeWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.homeTeam} Win</div></div>
       </div>
       <div class="slate-targets">
@@ -493,8 +494,8 @@ function openSlateModal(idx) {
       </div>
     </div>
     <div class="slate-meta-row">
-      <div class="slate-meta-item"><div class="slate-meta-val">${m.total ?? '—'}</div><div class="slate-meta-lbl">Total</div></div>
       <div class="slate-meta-item"><div class="slate-meta-val">${m.awayWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.awayTeam} Win</div></div>
+      <div class="slate-meta-item center"><div class="slate-meta-val">${m.total ?? '—'}</div><div class="slate-meta-lbl">Total</div></div>
       <div class="slate-meta-item"><div class="slate-meta-val">${m.homeWinProb ?? '—'}%</div><div class="slate-meta-lbl">${g.homeTeam} Win</div></div>
     </div>
     <div class="slate-modal-section">
