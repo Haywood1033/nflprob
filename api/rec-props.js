@@ -1,7 +1,5 @@
-// api/rec-props.js — Receiving yards player props endpoint (step 3b of the build order)
-// Same structure as api/rush-props.js, including the team-scoping fix that closed the
-// Tank Bigsby duplicate-player bug (usage aggregation filtered by team, not just name).
-// Same known limitation: player pool is usage-based, not a confirmed active roster.
+// api/rec-props.js — Receiving yards player props endpoint
+// ROSTER FILTERING: same fix as api/rush-props.js and api/props.js.
 
 const { fetchWeekSchedule } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
@@ -9,6 +7,7 @@ const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computeRecUsage, computeRecDefenseAllowed, projectRecYards, getRecSignals } = require('../lib/rec-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
+const { fetchTeamRoster, isOnRoster, isHealthy } = require('../lib/roster.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -52,6 +51,7 @@ module.exports = async function handler(req, res) {
 
   const throughWeek = Number(week) - 1;
   const players = [];
+  const rosterCache = {};
 
   for (const g of schedule) {
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek) : null;
@@ -64,8 +64,15 @@ module.exports = async function handler(req, res) {
     ];
 
     for (const t of teamsInGame) {
+      if (!(t.abbr in rosterCache)) {
+        rosterCache[t.abbr] = await fetchTeamRoster(t.abbr);
+      }
+      const roster = rosterCache[t.abbr];
+
       const pool = topReceiversForTeam(playerRows, t.abbr, throughWeek);
       for (const candidate of pool) {
+        if (!isOnRoster(roster, candidate.name)) continue;
+
         const usage = computeRecUsage(playerRows, candidate.name, toNflverseAbbr(t.abbr), throughWeek, recencyWindow(throughWeek));
         if (!usage) continue;
         const defAllowed = computeRecDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
@@ -86,6 +93,8 @@ module.exports = async function handler(req, res) {
           signalCount: sig.count,
           badge: sig.badge,
           ci: sig.ci,
+          injured: !isHealthy(roster, candidate.name),
+          injuryStatus: roster?.[candidate.name]?.injuryStatus || null,
         });
       }
     }
