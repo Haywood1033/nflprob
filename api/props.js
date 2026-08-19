@@ -1,13 +1,8 @@
-// api/props.js — Anytime TD player props endpoint (step 2 of the build order)
-// Ties together: schedule (who's playing whom) + team model (game script/implied points)
-// + player usage (targets/carries/TDs) + defense-allowed-by-position (matchup).
-//
-// KNOWN LIMITATION: player pool is "top usage players by touches over the last 5 games"
-// pulled straight from the stats file, NOT a confirmed active roster/injury report for
-// the upcoming week. Until we build a real roster/injury fetcher (same pattern as the
-// HR engine's lib/lineups.js), this can surface a player who's actually inactive/injured
-// this week. Flagging this explicitly rather than letting it look more authoritative
-// than it is.
+// api/props.js — Anytime TD player props endpoint
+// ROSTER FILTERING: same fix as api/rush-props.js — candidates are cross-checked against
+// ESPN's current roster before being scored, so a player released/traded in the offseason
+// (real example: Kenny Gainwell, no longer on Pittsburgh's roster) doesn't get surfaced
+// just because his name shows up in last season's usage history.
 
 const { fetchWeekSchedule } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
@@ -15,6 +10,7 @@ const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computePlayerUsage, computeDefenseAllowedToPosition, anytimeTdProb, getTdSignals } = require('../lib/td-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
+const { fetchTeamRoster, isOnRoster, isHealthy } = require('../lib/roster.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -70,6 +66,7 @@ module.exports = async function handler(req, res) {
 
   const throughWeek = Number(week) - 1;
   const players = [];
+  const rosterCache = {};
 
   for (const g of schedule) {
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek) : null;
@@ -82,8 +79,15 @@ module.exports = async function handler(req, res) {
     ];
 
     for (const t of teamsInGame) {
+      if (!(t.abbr in rosterCache)) {
+        rosterCache[t.abbr] = await fetchTeamRoster(t.abbr);
+      }
+      const roster = rosterCache[t.abbr];
+
       const pool = topUsagePlayersForTeam(playerRows, t.abbr, throughWeek);
       for (const candidate of pool) {
+        if (!isOnRoster(roster, candidate.name)) continue;
+
         const usage = computePlayerUsage(playerRows, candidate.name, throughWeek, recencyWindow(throughWeek));
         if (!usage) continue;
         const defAllowed = computeDefenseAllowedToPosition(playerRows, t.oppAbbr, usage.position, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
@@ -103,6 +107,8 @@ module.exports = async function handler(req, res) {
           signalCount: sig.count,
           badge: sig.badge,
           ci: sig.ci,
+          injured: !isHealthy(roster, candidate.name),
+          injuryStatus: roster?.[candidate.name]?.injuryStatus || null,
         });
       }
     }
