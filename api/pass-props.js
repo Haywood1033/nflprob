@@ -103,6 +103,7 @@ module.exports = async function handler(req, res) {
         floor: proj.floor,
         ceiling: proj.ceiling,
         attempts: usage.attempts,
+        signals: sig.signals,
         signalCount: sig.count,
         badge: sig.badge,
         ci: sig.ci,
