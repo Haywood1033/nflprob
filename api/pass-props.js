@@ -1,13 +1,7 @@
-// api/pass-props.js — Passing yards props endpoint (step 3c of the build order)
-// Structurally different from rush-props.js/rec-props.js: QBs are (usually) a
-// ONE-STARTER-PER-TEAM situation, not a ranked pool of candidates. This grabs the
-// clear top-attempts QB per team rather than surfacing a depth chart of backups —
-// which also means it has NO signal for "starter is injured, backup is playing this
-// week" since that needs real injury/roster data we don't have wired in yet (same
-// limitation flagged on the other two prop endpoints).
-//
-// Weather IS included here (unlike rush/rec) since wind directly suppresses passing
-// efficiency in a way that matters more for this prop specifically.
+// api/pass-props.js — Passing yards props endpoint
+// ROSTER FILTERING: same fix as the other three prop endpoints. Especially relevant here —
+// a starter can be released/traded, and this endpoint has no ranked backup fallback, so a
+// stale starter would previously just show up as-is with no signal anything was wrong.
 
 const { fetchWeekSchedule } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
@@ -16,6 +10,7 @@ const { fetchAllWeather } = require('../lib/weather.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computePassUsage, computePassDefenseAllowed, projectPassYards, getPassSignals } = require('../lib/pass-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
+const { fetchTeamRoster, isOnRoster, isHealthy } = require('../lib/roster.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -31,8 +26,7 @@ function starterQbForTeam(playerRows, teamEspnAbbr, throughWeek) {
     if (!byName[r.player_display_name]) byName[r.player_display_name] = { name: r.player_display_name, attempts: 0 };
     byName[r.player_display_name].attempts += attempts;
   }
-  const sorted = Object.values(byName).sort((a, b) => b.attempts - a.attempts);
-  return sorted[0] || null; // only the clear top-attempts starter, not a ranked pool
+  return Object.values(byName).sort((a, b) => b.attempts - a.attempts);
 }
 
 module.exports = async function handler(req, res) {
@@ -62,6 +56,7 @@ module.exports = async function handler(req, res) {
 
   const throughWeek = Number(week) - 1;
   const players = [];
+  const rosterCache = {};
 
   for (const g of schedule) {
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek) : null;
@@ -75,8 +70,19 @@ module.exports = async function handler(req, res) {
     ];
 
     for (const t of teamsInGame) {
-      const starter = starterQbForTeam(playerRows, t.abbr, throughWeek);
+      if (!(t.abbr in rosterCache)) {
+        rosterCache[t.abbr] = await fetchTeamRoster(t.abbr);
+      }
+      const roster = rosterCache[t.abbr];
+
+      // Try each candidate QB by usage rank until we find one who's actually still on the
+      // roster — not just take the single top-attempts name and hope. This is what actually
+      // fixes the "starter got released/traded" case for a position with no depth-chart
+      // fallback in the raw usage data alone.
+      const candidates = starterQbForTeam(playerRows, t.abbr, throughWeek);
+      const starter = candidates.find(c => isOnRoster(roster, c.name));
       if (!starter) continue;
+
       const usage = computePassUsage(playerRows, starter.name, toNflverseAbbr(t.abbr), throughWeek, recencyWindow(throughWeek));
       if (!usage) continue;
       const defAllowed = computePassDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
@@ -96,6 +102,8 @@ module.exports = async function handler(req, res) {
         signalCount: sig.count,
         badge: sig.badge,
         ci: sig.ci,
+        injured: !isHealthy(roster, starter.name),
+        injuryStatus: roster?.[starter.name]?.injuryStatus || null,
       });
     }
   }
