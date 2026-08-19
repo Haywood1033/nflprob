@@ -52,11 +52,18 @@ module.exports = async function handler(req, res) {
   if (!playerRows?.length) return res.status(200).json({ week, players: [], error: 'Player stats unavailable' });
 
   const homeTeams = schedule.map(g => g.homeTeam);
-  const weather = await fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {});
+  const distinctAbbrs = [...new Set(schedule.flatMap(g => [g.homeAbbr, g.awayAbbr]))];
+
+  // Weather and roster data are independent of each other — fetch both concurrently
+  // instead of one after the other.
+  const [weather, rosterEntries] = await Promise.all([
+    fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {}),
+    Promise.all(distinctAbbrs.map(async abbr => [abbr, await fetchTeamRoster(abbr)])),
+  ]);
+  const rosterCache = Object.fromEntries(rosterEntries);
 
   const throughWeek = Number(week) - 1;
   const players = [];
-  const rosterCache = {};
 
   for (const g of schedule) {
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek) : null;
@@ -70,9 +77,6 @@ module.exports = async function handler(req, res) {
     ];
 
     for (const t of teamsInGame) {
-      if (!(t.abbr in rosterCache)) {
-        rosterCache[t.abbr] = await fetchTeamRoster(t.abbr);
-      }
       const roster = rosterCache[t.abbr];
 
       // Try each candidate QB by usage rank until we find one who's actually still on the
