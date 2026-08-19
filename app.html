@@ -131,7 +131,8 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 
 /* ── BEST PLAYS tab ── */
 .best-list{display:flex;flex-direction:column;gap:8px}
-.best-row{display:flex;align-items:center;gap:14px;background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:8px;padding:12px 16px}
+.best-row{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:8px;padding:12px 16px}
+.best-row-top{display:flex;align-items:center;gap:14px;cursor:pointer}
 .best-row.elite{border-color:rgba(245,158,11,.3)}
 .best-row.allstar{border-color:rgba(96,165,250,.3)}
 .best-rank{font-family:var(--mono);font-size:13px;color:var(--t3);width:22px;flex-shrink:0;text-align:center}
@@ -151,6 +152,24 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .sig-chip{font-family:var(--mono);font-size:8px;font-weight:700;padding:2px 6px;border-radius:3px;white-space:nowrap;letter-spacing:.02em}
 .sig-chip.on{background:rgba(45,212,191,.12);color:var(--teal);border:1px solid rgba(45,212,191,.3)}
 .sig-chip.off{background:rgba(255,255,255,.03);color:var(--t3);border:1px solid rgba(255,255,255,.08)}
+
+.sig-filter-pills{display:flex;gap:6px;flex-wrap:wrap}
+.sig-filter-pill{padding:5px 11px;font-size:10px;font-weight:600;cursor:pointer;border-radius:14px;color:var(--t3);border:0.5px solid rgba(255,255,255,0.14);font-family:var(--mono);transition:all .15s;background:transparent}
+.sig-filter-pill.on{color:var(--purple);background:rgba(167,139,250,.1);border-color:rgba(167,139,250,.3)}
+
+.expand-row{cursor:pointer}
+.expand-row:hover{background:var(--bg2)}
+.expand-arrow{display:inline-block;font-size:9px;color:var(--t3);margin-right:6px;transition:transform .15s}
+.expand-arrow.open{transform:rotate(90deg)}
+.detail-row td{background:var(--bg3);padding:14px 20px !important;border-bottom:0.5px solid var(--bd)}
+.detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
+.detail-block-hdr{font-size:9px;font-family:var(--mono);color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.detail-sig-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px}
+.detail-sig-desc{font-size:10px;color:var(--t3);font-family:var(--mono)}
+
+.best-expand{margin-top:8px;padding-top:10px;border-top:0.5px solid var(--bg3);display:none}
+.best-expand.open{display:block}
+.best-row-clickable{cursor:pointer}
 </style>
 </head>
 <body>
@@ -185,10 +204,17 @@ let currentTab = 'week';
 
 const rawData = { td: null, rush: null, rec: null, pass: null };
 const filterState = {
-  td:   { matchup: 'all', position: 'all' },
-  rush: { matchup: 'all' },
-  rec:  { matchup: 'all' },
-  pass: { matchup: 'all' },
+  td:   { matchup: 'all', position: 'all', signal: 'all' },
+  rush: { matchup: 'all', signal: 'all' },
+  rec:  { matchup: 'all', signal: 'all' },
+  pass: { matchup: 'all', signal: 'all' },
+};
+
+const TAB_SIGNALS = {
+  td:   ['High Usage', 'Favorable Matchup', 'Hot Streak', 'Shootout Game', 'Featured Role', 'Sample Confidence'],
+  rush: ['High Usage', 'Favorable Matchup', 'Hot Streak', 'Bellcow Volume', 'Sample Confidence'],
+  rec:  ['High Usage', 'Favorable Matchup', 'Hot Streak', 'Featured Target', 'Sample Confidence'],
+  pass: ['High Volume', 'Favorable Matchup', 'Hot Streak', 'Pass-Heavy Script', 'Sample Confidence'],
 };
 
 function matchupKey(p) {
@@ -205,10 +231,15 @@ function buildMatchupOptions(players) {
   return options.sort();
 }
 
-function filterPlayers(players, matchup, position) {
+function hasActiveSignal(p, label) {
+  return !!(p.signals && p.signals.some(s => s.label === label && s.active));
+}
+
+function filterPlayers(players, matchup, position, signal) {
   return players.filter(p => {
     if (matchup !== 'all' && matchupKey(p) !== matchup) return false;
     if (position && position !== 'all' && p.position !== position) return false;
+    if (signal && signal !== 'all' && !hasActiveSignal(p, signal)) return false;
     return true;
   });
 }
@@ -407,6 +438,55 @@ const SIGNAL_ABBR = {
   'Pass-Heavy Script': 'SCRIPT',
 };
 
+// Generic descriptions for the expanded detail panel — approximate, since the exact
+// numeric threshold for the same label differs slightly by prop type (e.g. "High Usage"
+// means ≥12 carries/gm for TD-RB but ≥14 for the Rushing tab). Good enough for "what is
+// this signal roughly checking," not meant to restate the exact formula.
+const SIGNAL_DESC = {
+  'High Usage': 'Meaningful volume — carries or targets per game above the position baseline',
+  'High Volume': 'Pass attempts per game above the starter baseline',
+  'Favorable Matchup': 'Opponent has recently allowed more than the league-average rate to this position/stat',
+  'Hot Streak': 'Strong performance in this exact stat in 2+ of the last 3 games',
+  'Shootout Game': "This week's projected game total is 48+ points",
+  'Featured Role': 'Has scored a rushing TD (RB) or has an elevated target share (WR/TE)',
+  'Sample Confidence': 'Enough recent touches/targets/attempts that the read is not just small-sample noise',
+  'Bellcow Volume': "This week's projected carries are 16+",
+  'Featured Target': "This week's projected targets are 8+",
+  'Pass-Heavy Script': "This week's projected pass attempts are 36+",
+};
+
+// Tracks which rows are expanded per tab, keyed by "name|team" — persists across re-renders
+// within a tab (e.g. when a filter changes) so expanding a row doesn't collapse on refilter.
+const expandedKeys = { td: new Set(), rush: new Set(), rec: new Set(), pass: new Set(), best: new Set() };
+
+function rowKey(p) { return p.name + '|' + p.team; }
+
+function toggleExpand(tab, key, rerenderFn) {
+  const set = expandedKeys[tab];
+  if (set.has(key)) set.delete(key); else set.add(key);
+  rerenderFn();
+}
+
+function signalFilterPillsHTML(tab, signalLabels, activeSignal) {
+  return `<div class="sig-filter-pills">
+    <div class="sig-filter-pill${activeSignal === 'all' ? ' on' : ''}" data-sigfilter-tab="${tab}" data-sigfilter="all">All Signals</div>
+    ${signalLabels.map(label => `<div class="sig-filter-pill${activeSignal === label ? ' on' : ''}" data-sigfilter-tab="${tab}" data-sigfilter="${label}">${SIGNAL_ABBR[label] || label}</div>`).join('')}
+  </div>`;
+}
+
+function attachSignalFilterHandlers(tab, onPick) {
+  document.querySelectorAll(`.sig-filter-pill[data-sigfilter-tab="${tab}"]`).forEach(pill => {
+    pill.addEventListener('click', () => onPick(pill.dataset.sigfilter));
+  });
+}
+
+function signalDetailListHTML(signals) {
+  if (!signals || !signals.length) return '<div class="gs-meta">No signal data</div>';
+  return signals.map(s => `<div class="detail-sig-row">
+    <span style="color:${s.active ? 'var(--teal)' : 'var(--t3)'}">${s.active ? '✓' : '✗'} ${s.label}</span>
+  </div><div class="detail-sig-desc" style="margin-bottom:6px">${SIGNAL_DESC[s.label] || ''}</div>`).join('');
+}
+
 function signalChipsHTML(signals) {
   if (!signals || !signals.length) return '<span style="color:var(--t3);font-size:10px">—</span>';
   return `<div class="sig-chips">${signals.map(s =>
@@ -578,19 +658,21 @@ function renderTdProps(d) {
     return;
   }
 
-  const { matchup, position } = filterState.td;
-  const players = filterPlayers(allPlayers, matchup, position);
+  const { matchup, position, signal } = filterState.td;
+  const players = filterPlayers(allPlayers, matchup, position, signal);
 
   const filterBarHTML = `<div class="filter-bar">
     ${renderMatchupSelect('td', allPlayers)}
     ${renderPositionPills('td', ['RB', 'WR', 'TE'])}
     <span class="filter-count">${players.length} of ${allPlayers.length} players</span>
-  </div>`;
+  </div>
+  <div style="margin-bottom:14px">${signalFilterPillsHTML('td', TAB_SIGNALS.td, signal)}</div>`;
 
   const rows = players.map(p => {
     const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
-    return `<tr>
-      <td class="td-name">${p.name}</td>
+    const key = rowKey(p);
+    const isOpen = expandedKeys.td.has(key);
+    const mainRow = `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow${isOpen ? ' open' : ''}">▶</span>${p.name}</td>
       <td class="td-pos">${p.position}</td>
       <td class="td-team">${p.team} vs ${p.opponent}</td>
       <td class="td-prob">${p.prob}%</td>
@@ -598,6 +680,18 @@ function renderTdProps(d) {
       <td>${signalChipsHTML(p.signals)}</td>
       <td>${badgeHtml}</td>
     </tr>`;
+    const detailRow = isOpen ? `<tr class="detail-row"><td colspan="7">
+      <div class="detail-grid">
+        <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
+        <div><div class="detail-block-hdr">Key Stats</div>
+          <div class="detail-sig-row"><span>Anytime TD Probability</span><span style="color:var(--teal);font-family:var(--mono)">${p.prob}%</span></div>
+          <div class="detail-sig-row"><span>Touches (L5)</span><span style="font-family:var(--mono)">${p.touches}</span></div>
+          <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color || 'var(--t3)'};font-family:var(--mono)">${p.ci?.label || '—'}</span></div>
+          ${p.injured ? `<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus || 'Injured'}</span></div>` : ''}
+        </div>
+      </div>
+    </td></tr>` : '';
+    return mainRow + detailRow;
   }).join('');
 
   document.getElementById('content').innerHTML = filterBarHTML + `
@@ -606,11 +700,16 @@ function renderTdProps(d) {
       <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
-      Player pool is roster-verified against ESPN's current roster. Signal chips show every
-      individual flag (hover for the full label) — a player can be flagging real signals
-      without hitting the full threshold for a badge.
+      Player pool is roster-verified against ESPN's current roster. Click a row to expand for
+      full signal detail. Signal filter narrows to only players flagging that specific signal,
+      regardless of overall badge.
     </div>
   `;
+
+  document.querySelectorAll('.expand-row').forEach(row => {
+    row.addEventListener('click', () => toggleExpand('td', row.dataset.expandKey, () => renderTdProps(d)));
+  });
+  attachSignalFilterHandlers('td', (label) => { filterState.td.signal = label; renderTdProps(d); });
 
   attachFilterHandlers('td', renderTdProps);
 }
@@ -635,18 +734,20 @@ function renderRushProps(d) {
     return;
   }
 
-  const { matchup } = filterState.rush;
-  const players = filterPlayers(allPlayers, matchup, null);
+  const { matchup, signal } = filterState.rush;
+  const players = filterPlayers(allPlayers, matchup, null, signal);
 
   const filterBarHTML = `<div class="filter-bar">
     ${renderMatchupSelect('rush', allPlayers)}
     <span class="filter-count">${players.length} of ${allPlayers.length} players</span>
-  </div>`;
+  </div>
+  <div style="margin-bottom:14px">${signalFilterPillsHTML('rush', TAB_SIGNALS.rush, signal)}</div>`;
 
   const rows = players.map(p => {
     const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
-    return `<tr>
-      <td class="td-name">${p.name}</td>
+    const key = rowKey(p);
+    const isOpen = expandedKeys.rush.has(key);
+    const mainRow = `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow${isOpen ? ' open' : ''}">▶</span>${p.name}</td>
       <td class="td-team">${p.team} vs ${p.opponent}</td>
       <td class="td-prob">${p.projected}</td>
       <td class="td-touch">${p.floor}–${p.ceiling}</td>
@@ -654,6 +755,19 @@ function renderRushProps(d) {
       <td>${signalChipsHTML(p.signals)}</td>
       <td>${badgeHtml}</td>
     </tr>`;
+    const detailRow = isOpen ? `<tr class="detail-row"><td colspan="7">
+      <div class="detail-grid">
+        <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
+        <div><div class="detail-block-hdr">Key Stats</div>
+          <div class="detail-sig-row"><span>Projected Rushing Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
+          <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
+          <div class="detail-sig-row"><span>Carries (L5)</span><span style="font-family:var(--mono)">${p.carries}</span></div>
+          <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color || 'var(--t3)'};font-family:var(--mono)">${p.ci?.label || '—'}</span></div>
+          ${p.injured ? `<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus || 'Injured'}</span></div>` : ''}
+        </div>
+      </div>
+    </td></tr>` : '';
+    return mainRow + detailRow;
   }).join('');
 
   document.getElementById('content').innerHTML = filterBarHTML + `
@@ -663,9 +777,14 @@ function renderRushProps(d) {
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
       Projection is a mean estimate with a rough floor/ceiling range. Player pool is
-      roster-verified against ESPN's current roster.
+      roster-verified against ESPN's current roster. Click a row to expand.
     </div>
   `;
+
+  document.querySelectorAll('.expand-row').forEach(row => {
+    row.addEventListener('click', () => toggleExpand('rush', row.dataset.expandKey, () => renderRushProps(d)));
+  });
+  attachSignalFilterHandlers('rush', (label) => { filterState.rush.signal = label; renderRushProps(d); });
 
   attachFilterHandlers('rush', renderRushProps);
 }
@@ -690,18 +809,20 @@ function renderRecProps(d) {
     return;
   }
 
-  const { matchup } = filterState.rec;
-  const players = filterPlayers(allPlayers, matchup, null);
+  const { matchup, signal } = filterState.rec;
+  const players = filterPlayers(allPlayers, matchup, null, signal);
 
   const filterBarHTML = `<div class="filter-bar">
     ${renderMatchupSelect('rec', allPlayers)}
     <span class="filter-count">${players.length} of ${allPlayers.length} players</span>
-  </div>`;
+  </div>
+  <div style="margin-bottom:14px">${signalFilterPillsHTML('rec', TAB_SIGNALS.rec, signal)}</div>`;
 
   const rows = players.map(p => {
     const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
-    return `<tr>
-      <td class="td-name">${p.name}</td>
+    const key = rowKey(p);
+    const isOpen = expandedKeys.rec.has(key);
+    const mainRow = `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow${isOpen ? ' open' : ''}">▶</span>${p.name}</td>
       <td class="td-pos">${p.position}</td>
       <td class="td-team">${p.team} vs ${p.opponent}</td>
       <td class="td-prob">${p.projected}</td>
@@ -710,6 +831,19 @@ function renderRecProps(d) {
       <td>${signalChipsHTML(p.signals)}</td>
       <td>${badgeHtml}</td>
     </tr>`;
+    const detailRow = isOpen ? `<tr class="detail-row"><td colspan="8">
+      <div class="detail-grid">
+        <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
+        <div><div class="detail-block-hdr">Key Stats</div>
+          <div class="detail-sig-row"><span>Projected Receiving Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
+          <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
+          <div class="detail-sig-row"><span>Targets (L5)</span><span style="font-family:var(--mono)">${p.targets}</span></div>
+          <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color || 'var(--t3)'};font-family:var(--mono)">${p.ci?.label || '—'}</span></div>
+          ${p.injured ? `<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus || 'Injured'}</span></div>` : ''}
+        </div>
+      </div>
+    </td></tr>` : '';
+    return mainRow + detailRow;
   }).join('');
 
   document.getElementById('content').innerHTML = filterBarHTML + `
@@ -718,9 +852,15 @@ function renderRecProps(d) {
       <tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody>
     </table>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
-      WR/TE only. Player pool is roster-verified against ESPN's current roster.
+      WR/TE only. Player pool is roster-verified against ESPN's current roster. Click a row
+      to expand.
     </div>
   `;
+
+  document.querySelectorAll('.expand-row').forEach(row => {
+    row.addEventListener('click', () => toggleExpand('rec', row.dataset.expandKey, () => renderRecProps(d)));
+  });
+  attachSignalFilterHandlers('rec', (label) => { filterState.rec.signal = label; renderRecProps(d); });
 
   attachFilterHandlers('rec', renderRecProps);
 }
@@ -745,18 +885,20 @@ function renderPassProps(d) {
     return;
   }
 
-  const { matchup } = filterState.pass;
-  const players = filterPlayers(allPlayers, matchup, null);
+  const { matchup, signal } = filterState.pass;
+  const players = filterPlayers(allPlayers, matchup, null, signal);
 
   const filterBarHTML = `<div class="filter-bar">
     ${renderMatchupSelect('pass', allPlayers)}
     <span class="filter-count">${players.length} of ${allPlayers.length} QBs</span>
-  </div>`;
+  </div>
+  <div style="margin-bottom:14px">${signalFilterPillsHTML('pass', TAB_SIGNALS.pass, signal)}</div>`;
 
   const rows = players.map(p => {
     const badgeHtml = p.badge ? `<span class="badge-shootout" style="color:${p.badge.color};background:transparent;border-color:${p.badge.color}66">${p.badge.label}</span>` : '';
-    return `<tr>
-      <td class="td-name">${p.name}</td>
+    const key = rowKey(p);
+    const isOpen = expandedKeys.pass.has(key);
+    const mainRow = `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow${isOpen ? ' open' : ''}">▶</span>${p.name}</td>
       <td class="td-team">${p.team} vs ${p.opponent}</td>
       <td class="td-prob">${p.projected}</td>
       <td class="td-touch">${p.floor}–${p.ceiling}</td>
@@ -764,6 +906,19 @@ function renderPassProps(d) {
       <td>${signalChipsHTML(p.signals)}</td>
       <td>${badgeHtml}</td>
     </tr>`;
+    const detailRow = isOpen ? `<tr class="detail-row"><td colspan="7">
+      <div class="detail-grid">
+        <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
+        <div><div class="detail-block-hdr">Key Stats</div>
+          <div class="detail-sig-row"><span>Projected Passing Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
+          <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
+          <div class="detail-sig-row"><span>Attempts (L5)</span><span style="font-family:var(--mono)">${p.attempts}</span></div>
+          <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color || 'var(--t3)'};font-family:var(--mono)">${p.ci?.label || '—'}</span></div>
+          ${p.injured ? `<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus || 'Injured'}</span></div>` : ''}
+        </div>
+      </div>
+    </td></tr>` : '';
+    return mainRow + detailRow;
   }).join('');
 
   document.getElementById('content').innerHTML = filterBarHTML + `
@@ -776,6 +931,11 @@ function renderPassProps(d) {
       found. Projection is a mean estimate, not a fitted statistical distribution.
     </div>
   `;
+
+  document.querySelectorAll('.expand-row').forEach(row => {
+    row.addEventListener('click', () => toggleExpand('pass', row.dataset.expandKey, () => renderPassProps(d)));
+  });
+  attachSignalFilterHandlers('pass', (label) => { filterState.pass.signal = label; renderPassProps(d); });
 
   attachFilterHandlers('pass', renderPassProps);
 }
@@ -791,6 +951,12 @@ function renderPassProps(d) {
 
 let bestPlaysRaw = null;
 let bestPlaysFilter = 'all';
+let bestPlaysSignalFilter = 'all';
+
+// Union of every signal label across all four prop types — filtering by e.g. "Pass-Heavy
+// Script" naturally only matches PASS-type entries since that's the only type whose signals
+// array contains that label, so this one filter set works correctly across mixed types.
+const BEST_PLAYS_ALL_SIGNALS = [...new Set([...TAB_SIGNALS.td, ...TAB_SIGNALS.rush, ...TAB_SIGNALS.rec, ...TAB_SIGNALS.pass])];
 
 async function loadBestPlays() {
   document.getElementById('content').innerHTML = '<div class="empty"><h3>Finding the best plays this week…</h3></div>';
@@ -820,22 +986,26 @@ function buildUnifiedBestPlays(raw) {
   const td = raw.td.map(p => ({
     name: p.name, propType: 'TD', typeLabel: 'TD', position: p.position, team: p.team, opponent: p.opponent,
     displayValue: p.prob + '%', normalizedValue: (p.prob / 65) * 100,
-    signalCount: p.signalCount, badge: p.badge,
+    signalCount: p.signalCount, badge: p.badge, signals: p.signals, ci: p.ci,
+    detailStats: [['Anytime TD Probability', p.prob + '%'], ['Touches (L5)', p.touches]],
   }));
   const rush = raw.rush.map(p => ({
     name: p.name, propType: 'RUSH', typeLabel: 'RUSH', position: 'RB', team: p.team, opponent: p.opponent,
     displayValue: p.projected + ' yds', normalizedValue: Math.min(100, (p.projected / 200) * 100),
-    signalCount: p.signalCount, badge: p.badge,
+    signalCount: p.signalCount, badge: p.badge, signals: p.signals, ci: p.ci,
+    detailStats: [['Projected Yds', p.projected], ['Floor – Ceiling', p.floor + ' – ' + p.ceiling], ['Carries (L5)', p.carries]],
   }));
   const rec = raw.rec.map(p => ({
     name: p.name, propType: 'REC', typeLabel: 'REC', position: p.position, team: p.team, opponent: p.opponent,
     displayValue: p.projected + ' yds', normalizedValue: Math.min(100, (p.projected / 150) * 100),
-    signalCount: p.signalCount, badge: p.badge,
+    signalCount: p.signalCount, badge: p.badge, signals: p.signals, ci: p.ci,
+    detailStats: [['Projected Yds', p.projected], ['Floor – Ceiling', p.floor + ' – ' + p.ceiling], ['Targets (L5)', p.targets]],
   }));
   const pass = raw.pass.map(p => ({
     name: p.name, propType: 'PASS', typeLabel: 'PASS', position: 'QB', team: p.team, opponent: p.opponent,
     displayValue: p.projected + ' yds', normalizedValue: Math.min(100, (p.projected / 350) * 100),
-    signalCount: p.signalCount, badge: p.badge,
+    signalCount: p.signalCount, badge: p.badge, signals: p.signals, ci: p.ci,
+    detailStats: [['Projected Yds', p.projected], ['Floor – Ceiling', p.floor + ' – ' + p.ceiling], ['Attempts (L5)', p.attempts]],
   }));
 
   const all = [...td, ...rush, ...rec, ...pass];
@@ -860,7 +1030,8 @@ function renderBestPlays() {
   document.getElementById('statusText').textContent = 'Live';
 
   const all = buildUnifiedBestPlays(bestPlaysRaw);
-  const filtered = bestPlaysFilter === 'all' ? all : all.filter(p => p.propType === bestPlaysFilter);
+  let filtered = bestPlaysFilter === 'all' ? all : all.filter(p => p.propType === bestPlaysFilter);
+  if (bestPlaysSignalFilter !== 'all') filtered = filtered.filter(p => hasActiveSignal(p, bestPlaysSignalFilter));
   const shown = filtered.slice(0, 20); // curated cap — "best plays," not a full leaderboard
 
   const pillsHTML = `<div class="filter-bar">
@@ -872,10 +1043,11 @@ function renderBestPlays() {
       <div class="pos-pill${bestPlaysFilter === 'PASS' ? ' on' : ''}" data-best-filter="PASS">Passing</div>
     </div>
     <span class="filter-count">${shown.length} of ${filtered.length} notable plays</span>
-  </div>`;
+  </div>
+  <div style="margin-bottom:14px">${signalFilterPillsHTML('best', BEST_PLAYS_ALL_SIGNALS, bestPlaysSignalFilter)}</div>`;
 
   if (!shown.length) {
-    document.getElementById('content').innerHTML = pillsHTML + '<div class="empty"><h3>No notable plays match this filter</h3><div>Try a different category, or check back once more signal data is available.</div></div>';
+    document.getElementById('content').innerHTML = pillsHTML + '<div class="empty"><h3>No notable plays match this filter</h3><div>Try a different category or signal, or check back once more data is available.</div></div>';
     attachBestPlaysHandlers();
     return;
   }
@@ -883,24 +1055,44 @@ function renderBestPlays() {
   const typeClass = { TD: 'best-type-td', RUSH: 'best-type-rush', REC: 'best-type-rec', PASS: 'best-type-pass' };
   const rowClass = (badge) => badge.label.includes('Elite') ? ' elite' : badge.label.includes('All-Star') ? ' allstar' : '';
 
-  const rows = shown.map((p, i) => `<div class="best-row${rowClass(p.badge)}">
-    <div class="best-rank">${i + 1}</div>
-    <div class="best-type-tag ${typeClass[p.propType]}">${p.typeLabel}</div>
-    <div class="best-info">
-      <div class="best-name">${p.name}${p.position ? ` <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.position})</span>` : ''}</div>
-      <div class="best-sub">${p.team} vs ${p.opponent}</div>
+  const rows = shown.map((p, i) => {
+    const key = rowKey(p) + '|' + p.propType; // same player can appear under multiple prop types
+    const isOpen = expandedKeys.best.has(key);
+    return `<div class="best-row${rowClass(p.badge)}">
+    <div class="best-row-top" data-expand-key="${key}">
+      <div class="best-rank">${i + 1}</div>
+      <span class="expand-arrow${isOpen ? ' open' : ''}">▶</span>
+      <div class="best-type-tag ${typeClass[p.propType]}">${p.typeLabel}</div>
+      <div class="best-info">
+        <div class="best-name">${p.name}${p.position ? ` <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.position})</span>` : ''}</div>
+        <div class="best-sub">${p.team} vs ${p.opponent}</div>
+      </div>
+      <div class="best-value">${p.displayValue}</div>
+      <div class="best-badge" style="color:${p.badge.color}">${p.badge.label}</div>
     </div>
-    <div class="best-value">${p.displayValue}</div>
-    <div class="best-badge" style="color:${p.badge.color}">${p.badge.label}</div>
-  </div>`).join('');
+    <div class="best-expand${isOpen ? ' open' : ''}">
+      <div class="detail-grid">
+        <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
+        <div><div class="detail-block-hdr">Key Stats</div>
+          ${p.detailStats.map(([label, val]) => `<div class="detail-sig-row"><span>${label}</span><span style="color:var(--teal);font-family:var(--mono)">${val}</span></div>`).join('')}
+          <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color || 'var(--t3)'};font-family:var(--mono)">${p.ci?.label || '—'}</span></div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  }).join('');
 
   document.getElementById('content').innerHTML = pillsHTML + `<div class="best-list">${rows}</div>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">
       Only plays that cleared a signal-backed badge (Value Play or higher) show here — this
       is a curated list, not every player on the slate. Ranked by badge tier first, then
-      signal count, then a normalized value score to compare fairly across prop types.
+      signal count, then a normalized value score to compare fairly across prop types. Click
+      a row to expand for the full signal breakdown.
     </div>`;
 
+  document.querySelectorAll('.best-row-top').forEach(row => {
+    row.addEventListener('click', () => toggleExpand('best', row.dataset.expandKey, renderBestPlays));
+  });
   attachBestPlaysHandlers();
 }
 
@@ -911,6 +1103,7 @@ function attachBestPlaysHandlers() {
       renderBestPlays();
     });
   });
+  attachSignalFilterHandlers('best', (label) => { bestPlaysSignalFilter = label; renderBestPlays(); });
 }
 
 let seasonCategory = 'wins';
