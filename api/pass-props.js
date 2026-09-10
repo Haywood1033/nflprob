@@ -5,12 +5,13 @@ const { fetchAllWeather } = require('../lib/weather.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computePassUsage, computePassDefenseAllowed, projectPassYards, getPassSignals } = require('../lib/pass-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
-const { fetchTeamRoster, isOnRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
+const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
+const { poolFromRoster } = require('../lib/roster-pool.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
 
-function starterQbForTeam(playerRows, teamEspnAbbr, throughWeek) {
+function starterQbForTeamFallback(playerRows, teamEspnAbbr, throughWeek) {
   const team = toNflverseAbbr(teamEspnAbbr);
   const weekFilter = throughWeek < 1 ? () => true : (r) => Number(r.week) <= throughWeek;
   const teamRows = playerRows.filter(r => r.team === team && r.position === 'QB' && r.season_type === 'REG' && weekFilter(r));
@@ -18,10 +19,12 @@ function starterQbForTeam(playerRows, teamEspnAbbr, throughWeek) {
   const byName = {};
   for (const r of teamRows) {
     const attempts = parseFloat(r.attempts) || 0;
-    if (!byName[r.player_display_name]) byName[r.player_display_name] = { name: r.player_display_name, attempts: 0 };
+    if (!byName[r.player_display_name]) byName[r.player_display_name] = { name: r.player_display_name, histTeam: team, attempts: 0 };
     byName[r.player_display_name].attempts += attempts;
   }
-  return Object.values(byName).sort((a, b) => b.attempts - a.attempts);
+  return Object.values(byName)
+    .map(p => ({ name: p.name, histTeam: p.histTeam, volume: p.attempts }))
+    .sort((a, b) => b.volume - a.volume);
 }
 
 module.exports = async function handler(req, res) {
@@ -72,11 +75,12 @@ module.exports = async function handler(req, res) {
     for (const t of teamsInGame) {
       const roster = rosterCache[t.abbr];
 
-      const candidates = starterQbForTeam(playerRows, t.abbr, throughWeek);
-      const starter = candidates.find(c => isOnRoster(roster, c.name));
-      if (!starter) continue;
+      const candidates = poolFromRoster(roster, playerRows, ['QB'], 'attempts', 3)
+        || starterQbForTeamFallback(playerRows, t.abbr, throughWeek);
+      if (!candidates?.length) continue;
+      const starter = candidates[0];
 
-      const usage = computePassUsage(playerRows, starter.name, toNflverseAbbr(t.abbr), throughWeek, recencyWindow(throughWeek));
+      const usage = computePassUsage(playerRows, starter.name, starter.histTeam, throughWeek, recencyWindow(throughWeek));
       if (!usage) continue;
       const defAllowed = computePassDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
       const proj = projectPassYards(usage, defAllowed, t.implied, { weather: gameWeather });
