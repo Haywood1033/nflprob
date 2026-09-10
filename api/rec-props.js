@@ -1,13 +1,10 @@
-// api/rec-props.js — Receiving yards player props endpoint
-// ROSTER FILTERING: same fix as api/rush-props.js and api/props.js.
-
 const { fetchWeekSchedule } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computeRecUsage, computeRecDefenseAllowed, projectRecYards, getRecSignals } = require('../lib/rec-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
-const { fetchTeamRoster, isOnRoster, isHealthy } = require('../lib/roster.js');
+const { fetchTeamRoster, isOnRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -79,6 +76,7 @@ module.exports = async function handler(req, res) {
         const proj = projectRecYards(usage, defAllowed, t.implied);
         if (!proj) continue;
         const sig = getRecSignals(usage, defAllowed, proj);
+        const rosterEntry = getRosterEntry(roster, candidate.name);
 
         players.push({
           name: candidate.name,
@@ -95,7 +93,7 @@ module.exports = async function handler(req, res) {
           badge: sig.badge,
           ci: sig.ci,
           injured: !isHealthy(roster, candidate.name),
-          injuryStatus: roster?.[candidate.name]?.injuryStatus || null,
+          injuryStatus: rosterEntry?.injuryStatus || null,
         });
       }
     }
