@@ -1,20 +1,13 @@
-// api/props.js — Anytime TD player props endpoint
-// ROSTER FILTERING: same fix as api/rush-props.js — candidates are cross-checked against
-// ESPN's current roster before being scored, so a player released/traded in the offseason
-// (real example: Kenny Gainwell, no longer on Pittsburgh's roster) doesn't get surfaced
-// just because his name shows up in last season's usage history.
-
 const { fetchWeekSchedule } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computePlayerUsage, computeDefenseAllowedToPosition, anytimeTdProb, getTdSignals } = require('../lib/td-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
-const { fetchTeamRoster, isOnRoster, isHealthy } = require('../lib/roster.js');
+const { fetchTeamRoster, isOnRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
-
 const TD_POSITIONS = ['RB', 'WR', 'TE'];
 
 function topUsagePlayersForTeam(playerRows, teamEspnAbbr, throughWeek, perPosition = 4) {
@@ -94,6 +87,7 @@ module.exports = async function handler(req, res) {
         const prob = anytimeTdProb(usage, defAllowed, t.implied);
         if (prob == null) continue;
         const sig = getTdSignals(usage, defAllowed, model);
+        const rosterEntry = getRosterEntry(roster, candidate.name);
 
         players.push({
           name: candidate.name,
@@ -108,7 +102,7 @@ module.exports = async function handler(req, res) {
           badge: sig.badge,
           ci: sig.ci,
           injured: !isHealthy(roster, candidate.name),
-          injuryStatus: roster?.[candidate.name]?.injuryStatus || null,
+          injuryStatus: rosterEntry?.injuryStatus || null,
         });
       }
     }
