@@ -1,8 +1,3 @@
-// api/pass-props.js — Passing yards props endpoint
-// ROSTER FILTERING: same fix as the other three prop endpoints. Especially relevant here —
-// a starter can be released/traded, and this endpoint has no ranked backup fallback, so a
-// stale starter would previously just show up as-is with no signal anything was wrong.
-
 const { fetchWeekSchedule } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
@@ -10,7 +5,7 @@ const { fetchAllWeather } = require('../lib/weather.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computePassUsage, computePassDefenseAllowed, projectPassYards, getPassSignals } = require('../lib/pass-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
-const { fetchTeamRoster, isOnRoster, isHealthy } = require('../lib/roster.js');
+const { fetchTeamRoster, isOnRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -54,8 +49,6 @@ module.exports = async function handler(req, res) {
   const homeTeams = schedule.map(g => g.homeTeam);
   const distinctAbbrs = [...new Set(schedule.flatMap(g => [g.homeAbbr, g.awayAbbr]))];
 
-  // Weather and roster data are independent of each other — fetch both concurrently
-  // instead of one after the other.
   const [weather, rosterEntries] = await Promise.all([
     fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {}),
     Promise.all(distinctAbbrs.map(async abbr => [abbr, await fetchTeamRoster(abbr)])),
@@ -79,10 +72,6 @@ module.exports = async function handler(req, res) {
     for (const t of teamsInGame) {
       const roster = rosterCache[t.abbr];
 
-      // Try each candidate QB by usage rank until we find one who's actually still on the
-      // roster — not just take the single top-attempts name and hope. This is what actually
-      // fixes the "starter got released/traded" case for a position with no depth-chart
-      // fallback in the raw usage data alone.
       const candidates = starterQbForTeam(playerRows, t.abbr, throughWeek);
       const starter = candidates.find(c => isOnRoster(roster, c.name));
       if (!starter) continue;
@@ -93,6 +82,7 @@ module.exports = async function handler(req, res) {
       const proj = projectPassYards(usage, defAllowed, t.implied, { weather: gameWeather });
       if (!proj) continue;
       const sig = getPassSignals(usage, defAllowed, proj);
+      const rosterEntry = getRosterEntry(roster, starter.name);
 
       players.push({
         name: starter.name,
@@ -108,7 +98,7 @@ module.exports = async function handler(req, res) {
         badge: sig.badge,
         ci: sig.ci,
         injured: !isHealthy(roster, starter.name),
-        injuryStatus: roster?.[starter.name]?.injuryStatus || null,
+        injuryStatus: rosterEntry?.injuryStatus || null,
       });
     }
   }
