@@ -4,12 +4,13 @@ const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computeRushUsage, computeRushDefenseAllowed, projectRushYards, getRushSignals } = require('../lib/rush-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
-const { fetchTeamRoster, isOnRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
+const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
+const { poolFromRoster } = require('../lib/roster-pool.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
 
-function topRushersForTeam(playerRows, teamEspnAbbr, throughWeek, count = 4) {
+function topRushersForTeamFallback(playerRows, teamEspnAbbr, throughWeek, count = 4) {
   const team = toNflverseAbbr(teamEspnAbbr);
   const weekFilter = throughWeek < 1 ? () => true : (r) => Number(r.week) <= throughWeek;
   const teamRows = playerRows.filter(r => r.team === team && r.position === 'RB' && r.season_type === 'REG' && weekFilter(r));
@@ -17,10 +18,12 @@ function topRushersForTeam(playerRows, teamEspnAbbr, throughWeek, count = 4) {
   const byName = {};
   for (const r of teamRows) {
     const carries = parseFloat(r.carries) || 0;
-    if (!byName[r.player_display_name]) byName[r.player_display_name] = { name: r.player_display_name, carries: 0 };
+    if (!byName[r.player_display_name]) byName[r.player_display_name] = { name: r.player_display_name, histTeam: team, carries: 0 };
     byName[r.player_display_name].carries += carries;
   }
-  return Object.values(byName).sort((a, b) => b.carries - a.carries).slice(0, count);
+  return Object.values(byName)
+    .map(p => ({ name: p.name, histTeam: p.histTeam, volume: p.carries }))
+    .sort((a, b) => b.volume - a.volume).slice(0, count);
 }
 
 module.exports = async function handler(req, res) {
@@ -65,11 +68,11 @@ module.exports = async function handler(req, res) {
     for (const t of teamsInGame) {
       const roster = rosterCache[t.abbr];
 
-      const pool = topRushersForTeam(playerRows, t.abbr, throughWeek);
-      for (const candidate of pool) {
-        if (!isOnRoster(roster, candidate.name)) continue;
+      const pool = poolFromRoster(roster, playerRows, ['RB'], 'carries', 4)
+        || topRushersForTeamFallback(playerRows, t.abbr, throughWeek);
 
-        const usage = computeRushUsage(playerRows, candidate.name, toNflverseAbbr(t.abbr), throughWeek, recencyWindow(throughWeek));
+      for (const candidate of pool) {
+        const usage = computeRushUsage(playerRows, candidate.name, candidate.histTeam, throughWeek, recencyWindow(throughWeek));
         if (!usage) continue;
         const defAllowed = computeRushDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
         const proj = projectRushYards(usage, defAllowed, t.implied);
