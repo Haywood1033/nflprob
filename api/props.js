@@ -36,7 +36,7 @@ function topUsagePlayersForTeamFallback(playerRows, teamEspnAbbr, throughWeek, p
 function tdPoolFromRoster(roster, playerRows, count = 8) {
   // Same fix as lib/roster-pool.js — an empty-but-truthy roster object must fall back too.
   if (!roster || Object.keys(roster).length === 0) return null;
-  const candidates = Object.values(roster).filter(entry => TD_POSITIONS.includes(entry.position) && !entry.suspended);
+  const candidates = Object.values(roster).filter(entry => TD_POSITIONS.includes(entry.position) && !entry.definitelyOut);
 
   const { findHistoricalTeam } = require('../lib/roster-pool.js');
   const withVolume = candidates.map(entry => {
