@@ -606,54 +606,43 @@ function attachBestPlaysHandlers() {
   attachSignalFilterHandlers('best', label => { bestPlaysSignalFilter = label; renderBestPlays(); });
 }
 
-// ═══════════════ PARLAY BUILDER ═══════════════
-// IMPORTANT MODELING CAVEATS, stated once here and repeated in the UI:
-// 1. Anytime TD legs use the model's real computed probability. Yardage legs (rush/rec/pass)
-//    have no real "probability of hitting a line" — we only have a projected MEAN. The line
-//    used for a yardage leg is that player's own FLOOR value (already computed elsewhere as
-//    roughly 1 standard deviation below their projection), which under a normal-distribution
-//    approximation implies a fixed ~84.1% chance of clearing it (Φ(1)). This is a stated
-//    approximation, not a fitted, calibrated probability like the TD model.
-// 2. Combined parlay probability = product of individual leg probabilities, which assumes
-//    INDEPENDENCE between legs. This is a real, meaningful simplification — legs from the
-//    SAME GAME are not independent (they're correlated with that game's actual script/total),
-//    so a same-game 2-leg parlay's true combined probability could be meaningfully higher or
-//    lower than naive multiplication suggests. The auto-generated 3/4/5-leg parlays therefore
-//    deliberately pick at most ONE leg per game, sidestepping this issue. The manual "add a
-//    second player from this game" feature explicitly reintroduces that correlation, and is
-//    labeled as such in the UI rather than hidden.
-
-const YARDAGE_LEG_PROB = 0.841; // Φ(1) — P(X > mean - 1σ) under a normal approximation, constant by construction
+// ═══════════════ PARLAY BUILDER (Anytime TD only) ═══════════════
+// Deliberately TD-only. Yardage props (rush/rec/pass) have no real "hit probability" without
+// a sportsbook line to compare against — we only have a projected mean, so any yardage "leg"
+// would need a fabricated line and an approximated probability around it. Anytime TD is
+// different: it's a real, directly modeled probability of a binary event (does this player
+// score a touchdown), not tied to any line assumption at all. So this tab only pulls from
+// the same Anytime TD model used everywhere else in the app — nothing here is invented for
+// parlay purposes specifically.
+//
+// Combined parlay probability = product of individual leg probabilities, which assumes
+// INDEPENDENCE between legs. This is a real, meaningful simplification — legs from the SAME
+// GAME are not independent (they're correlated with that game's actual script/total), so a
+// same-game 2-leg parlay's true combined probability could be meaningfully higher or lower
+// than naive multiplication suggests. The auto-generated 3/4/5-leg parlays therefore
+// deliberately pick at most ONE leg per game, sidestepping this issue. The manual "add a
+// second player from this game" feature explicitly reintroduces that correlation, and is
+// labeled as such in the UI rather than hidden.
 
 let parlayRaw = null;
 let parlaySubtab = 'best3';
-let parlayManualSelectedGames = new Set(); // gameId -> selected for manual builder
-let parlayManualSecondLegs = {}; // gameId -> chosen second-leg key (or null)
-let parlayManualSecondLegOpen = new Set(); // gameId -> whether the "add second leg" picker is expanded
+let parlayManualSelectedGames = new Set();
+let parlayManualSecondLegs = {};
+let parlayManualSecondLegOpen = new Set();
 
 async function loadParlayBuilder() {
   document.getElementById('content').innerHTML = '<div class="empty"><h3>Building parlays…</h3></div>';
   try {
-    const [tdRes, rushRes, recRes, passRes] = await Promise.all([
-      fetch('/api/props?week=' + week).then(r=>r.json()), fetch('/api/rush-props?week=' + week).then(r=>r.json()),
-      fetch('/api/rec-props?week=' + week).then(r=>r.json()), fetch('/api/pass-props?week=' + week).then(r=>r.json()),
-    ]);
-    parlayRaw = { td: tdRes.players||[], rush: rushRes.players||[], rec: recRes.players||[], pass: passRes.players||[] };
+    const d = await fetch('/api/props?week=' + week).then(r=>r.json());
+    parlayRaw = d.players || [];
     renderParlayBuilder();
   } catch (e) { document.getElementById('content').innerHTML = '<div class="empty"><h3>Failed to load</h3><div>' + e.message + '</div></div>'; }
 }
 
-function buildParlayLegPool(raw) {
-  const td = raw.td.map(p => ({ name:p.name, propType:'TD', typeLabel:'TD', position:p.position, team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:p.prob+'%', legProb: p.prob/100, normalizedValue:(p.prob/65)*100, signalCount:p.signalCount, badge:p.badge, signals:p.signals }));
-  const rush = raw.rush.map(p => ({ name:p.name, propType:'RUSH', typeLabel:'RUSH', position:'RB', team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:'Over '+p.floor+' yds', legProb: YARDAGE_LEG_PROB, normalizedValue:Math.min(100,(p.projected/200)*100), signalCount:p.signalCount, badge:p.badge, signals:p.signals }));
-  const rec = raw.rec.map(p => ({ name:p.name, propType:'REC', typeLabel:'REC', position:p.position, team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:'Over '+p.floor+' yds', legProb: YARDAGE_LEG_PROB, normalizedValue:Math.min(100,(p.projected/150)*100), signalCount:p.signalCount, badge:p.badge, signals:p.signals }));
-  const pass = raw.pass.map(p => ({ name:p.name, propType:'PASS', typeLabel:'PASS', position:'QB', team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:'Over '+p.floor+' yds', legProb: YARDAGE_LEG_PROB, normalizedValue:Math.min(100,(p.projected/350)*100), signalCount:p.signalCount, badge:p.badge, signals:p.signals }));
-  const all = [...td, ...rush, ...rec, ...pass];
-  const notable = all.filter(p => p.badge); // same "genuinely notable" bar as Best Plays — a parlay leg should be a good play, not just any play
+function buildParlayLegPool(players) {
+  const legs = players.map(p => ({ name:p.name, position:p.position, team:p.team, opponent:p.opponent, gameId:p.gameId,
+    displayValue: 'Anytime TD', legProb: p.prob/100, normalizedValue: p.prob, signalCount:p.signalCount, badge:p.badge, signals:p.signals }));
+  const notable = legs.filter(p => p.badge); // same "genuinely notable" bar as Best Plays — a parlay leg should be a good play, not just any play
   notable.sort((a,b) => { const tw=tierWeight(b.badge)-tierWeight(a.badge); if (tw!==0) return tw; const sc=b.signalCount-a.signalCount; if (sc!==0) return sc; return b.normalizedValue-a.normalizedValue; });
   return notable;
 }
@@ -662,18 +651,12 @@ function buildParlayLegPool(raw) {
 // same-game correlation) and as the manual builder's default pick when a game is selected.
 function bestLegPerGame(legPool) {
   const byGame = {};
-  for (const leg of legPool) {
-    if (!byGame[leg.gameId] || leg.normalizedValue > byGame[leg.gameId].normalizedValue) {
-      // legPool is already sorted by tier/signal/value, so first-seen per game is already the best;
-      // this guard just makes the intent explicit rather than relying on sort order alone.
-    }
-    if (!byGame[leg.gameId]) byGame[leg.gameId] = leg;
-  }
+  for (const leg of legPool) { if (!byGame[leg.gameId]) byGame[leg.gameId] = leg; } // legPool is pre-sorted, first-seen per game is already the best
   return Object.values(byGame);
 }
 
 function buildAutoParlay(legPool, n) {
-  const perGame = bestLegPerGame(legPool); // already ranked (pool was pre-sorted), one leg per game
+  const perGame = bestLegPerGame(legPool);
   const legs = perGame.slice(0, n);
   const combinedProb = legs.reduce((acc, leg) => acc * leg.legProb, 1);
   return { legs, combinedProb };
@@ -686,21 +669,17 @@ function renderParlaySubtabs() {
 }
 
 function renderParlayCard(title, legs, combinedProb) {
-  if (!legs.length) return `<div class="empty"><h3>Not enough notable plays across different games this week</h3></div>`;
-  const typeClass = {TD:'best-type-td',RUSH:'best-type-rush',REC:'best-type-rec',PASS:'best-type-pass'};
+  if (!legs.length) return `<div class="empty"><h3>Not enough notable Anytime TD plays across different games this week</h3></div>`;
   const legsHTML = legs.map((leg,i) => `<div class="parlay-leg">
     <div class="parlay-leg-num">${i+1}</div>
-    <div class="best-type-tag ${typeClass[leg.propType]}" style="margin-right:4px">${leg.typeLabel}</div>
-    <div class="parlay-leg-info"><div class="parlay-leg-name">${leg.name}</div><div class="parlay-leg-detail">${leg.team} vs ${leg.opponent} — ${leg.displayValue}</div></div>
+    <div class="parlay-leg-info"><div class="parlay-leg-name">${leg.name} <span style="color:var(--t3);font-weight:400;font-size:11px">(${leg.position})</span></div><div class="parlay-leg-detail">${leg.team} vs ${leg.opponent} — Anytime TD</div></div>
     <div class="parlay-leg-prob">${(leg.legProb*100).toFixed(1)}%</div></div>`).join('');
   return `<div class="parlay-card"><div class="parlay-hdr"><div class="parlay-title">${title}</div>
     <div class="parlay-combined"><div class="parlay-combined-val">${(combinedProb*100).toFixed(1)}%</div><div class="parlay-combined-lbl">Combined Hit Rate</div></div></div>
     ${legsHTML}</div>
-    <div class="parlay-disclaimer">Anytime TD legs use the model's real computed probability. Yardage legs are set at each
-    player's own projected floor value, which implies a fixed ~84.1% hit rate under a normal-distribution approximation —
-    a stated simplification, not a calibrated line. Combined probability assumes each leg is independent; every leg here
-    comes from a <em>different</em> game specifically to keep that assumption reasonable — same-game legs are NOT
-    independent and would need separate correlation handling (see "Build Your Own" for that explicit tradeoff).</div>`;
+    <div class="parlay-disclaimer">Every leg is Anytime TD — the model's real computed probability, not a sportsbook line.
+    Combined probability assumes each leg is independent; every leg here comes from a <em>different</em> game specifically
+    to keep that assumption reasonable — same-game legs are NOT independent (see "Build Your Own" for that explicit tradeoff).</div>`;
 }
 
 function renderParlayBuilder() {
@@ -709,9 +688,9 @@ function renderParlayBuilder() {
   const legPool = buildParlayLegPool(parlayRaw);
   const subtabsHTML = renderParlaySubtabs();
 
-  if (parlaySubtab === 'best3') { const {legs,combinedProb} = buildAutoParlay(legPool,3); document.getElementById('content').innerHTML = subtabsHTML + renderParlayCard('Best 3-Leg Parlay', legs, combinedProb); }
-  else if (parlaySubtab === 'best4') { const {legs,combinedProb} = buildAutoParlay(legPool,4); document.getElementById('content').innerHTML = subtabsHTML + renderParlayCard('Best 4-Leg Parlay', legs, combinedProb); }
-  else if (parlaySubtab === 'best5') { const {legs,combinedProb} = buildAutoParlay(legPool,5); document.getElementById('content').innerHTML = subtabsHTML + renderParlayCard('Best 5-Leg Parlay', legs, combinedProb); }
+  if (parlaySubtab === 'best3') { const {legs,combinedProb} = buildAutoParlay(legPool,3); document.getElementById('content').innerHTML = subtabsHTML + renderParlayCard('Best 3-Leg TD Parlay', legs, combinedProb); }
+  else if (parlaySubtab === 'best4') { const {legs,combinedProb} = buildAutoParlay(legPool,4); document.getElementById('content').innerHTML = subtabsHTML + renderParlayCard('Best 4-Leg TD Parlay', legs, combinedProb); }
+  else if (parlaySubtab === 'best5') { const {legs,combinedProb} = buildAutoParlay(legPool,5); document.getElementById('content').innerHTML = subtabsHTML + renderParlayCard('Best 5-Leg TD Parlay', legs, combinedProb); }
   else { document.getElementById('content').innerHTML = subtabsHTML + renderManualParlayBuilder(legPool); }
 
   attachParlaySubtabHandlers();
@@ -723,7 +702,6 @@ function attachParlaySubtabHandlers() {
 }
 
 function renderManualParlayBuilder(legPool) {
-  // Group legs by game so each game's full available leg list is browsable for the optional second pick.
   const gamesMap = {};
   for (const leg of legPool) {
     if (!gamesMap[leg.gameId]) gamesMap[leg.gameId] = { gameId: leg.gameId, teams: leg.team + ' vs ' + leg.opponent, legs: [] };
@@ -732,7 +710,7 @@ function renderManualParlayBuilder(legPool) {
   const games = Object.values(gamesMap);
 
   const pickerHTML = games.map(g => {
-    const topLeg = g.legs[0]; // already sorted by quality within buildParlayLegPool
+    const topLeg = g.legs[0];
     const isSelected = parlayManualSelectedGames.has(g.gameId);
     const secondLegKey = parlayManualSecondLegs[g.gameId];
     const secondLegOpen = parlayManualSecondLegOpen.has(g.gameId);
@@ -742,17 +720,16 @@ function renderManualParlayBuilder(legPool) {
       <div class="parlay-game-top" data-manual-game="${g.gameId}">
         <div class="parlay-game-checkbox${isSelected?' checked':''}">${isSelected?'✓':''}</div>
         <div class="parlay-game-name">${g.teams}</div>
-        <div class="parlay-game-top-play">${topLeg.name} — ${topLeg.displayValue} (${(topLeg.legProb*100).toFixed(1)}%)</div>
+        <div class="parlay-game-top-play">${topLeg.name} — Anytime TD (${(topLeg.legProb*100).toFixed(1)}%)</div>
       </div>
-      ${isSelected && otherLegs.length ? `<div class="parlay-secondleg-toggle" data-secondleg-toggle="${g.gameId}">${secondLegOpen?'▾':'▸'} + add a second player from this game (correlated)</div>` : ''}
+      ${isSelected && otherLegs.length ? `<div class="parlay-secondleg-toggle" data-secondleg-toggle="${g.gameId}">${secondLegOpen?'▾':'▸'} + add a second TD scorer from this game (correlated)</div>` : ''}
       ${isSelected && secondLegOpen ? `<div class="parlay-secondleg-picker">
         ${otherLegs.map(l => `<div class="parlay-secondleg-option${secondLegKey===rowKey(l)?' picked':''}" data-secondleg-pick="${g.gameId}" data-secondleg-key="${rowKey(l)}">
-          <span>${l.name} — ${l.displayValue}</span><span style="font-family:var(--mono)">${(l.legProb*100).toFixed(1)}%</span></div>`).join('')}
+          <span>${l.name} (${l.position})</span><span style="font-family:var(--mono)">${(l.legProb*100).toFixed(1)}%</span></div>`).join('')}
       </div>` : ''}
     </div>`;
   }).join('');
 
-  // Build the actual selected-leg list for the running total
   const selectedLegs = [];
   for (const gameId of parlayManualSelectedGames) {
     const g = gamesMap[gameId]; if (!g) continue;
@@ -767,9 +744,9 @@ function renderManualParlayBuilder(legPool) {
     <div class="parlay-title">Your Parlay (${selectedLegs.length} legs)</div>
     <div class="parlay-combined"><div class="parlay-combined-val">${(combinedProb*100).toFixed(1)}%</div><div class="parlay-combined-lbl">Combined Hit Rate</div></div></div>
     ${selectedLegs.map((leg,i) => `<div class="parlay-leg"><div class="parlay-leg-num">${i+1}</div>
-      <div class="parlay-leg-info"><div class="parlay-leg-name">${leg.name}${hasCorrelatedPair?'':''}</div><div class="parlay-leg-detail">${leg.team} vs ${leg.opponent} — ${leg.displayValue}</div></div>
+      <div class="parlay-leg-info"><div class="parlay-leg-name">${leg.name} <span style="color:var(--t3);font-weight:400;font-size:11px">(${leg.position})</span></div><div class="parlay-leg-detail">${leg.team} vs ${leg.opponent} — Anytime TD</div></div>
       <div class="parlay-leg-prob">${(leg.legProb*100).toFixed(1)}%</div></div>`).join('')}
-    ${hasCorrelatedPair ? `<div class="parlay-disclaimer"><span class="parlay-correlated-tag">CORRELATED LEGS</span> You've added 2 players from the same game. Their outcomes aren't independent — the combined probability shown above assumes independence and is likely LESS accurate for this parlay than for single-leg-per-game ones.</div>` : `<div class="parlay-disclaimer">Yardage legs use each player's floor value (~84.1% implied hit rate under a normal approximation). Combined probability assumes independent legs.</div>`}
+    ${hasCorrelatedPair ? `<div class="parlay-disclaimer"><span class="parlay-correlated-tag">CORRELATED LEGS</span> You've added 2 TD scorers from the same game. Their outcomes aren't independent (both are tied to that game's actual script/total) — the combined probability shown above assumes independence and is likely LESS accurate for this parlay than for single-leg-per-game ones.</div>` : `<div class="parlay-disclaimer">Every leg is the model's real Anytime TD probability. Combined probability assumes independent legs.</div>`}
   </div>` : '<div class="empty" style="padding:20px 4px"><h3>Select games below to build your parlay</h3></div>';
 
   return summaryHTML + `<div class="parlay-game-picker">${pickerHTML}</div>`;
@@ -789,7 +766,7 @@ function attachManualParlayHandlers(legPool) {
   }));
   document.querySelectorAll('[data-secondleg-pick]').forEach(el => el.addEventListener('click', (e) => {
     e.stopPropagation(); const gameId = el.dataset.secondlegPick; const key = el.dataset.secondlegKey;
-    parlayManualSecondLegs[gameId] = parlayManualSecondLegs[gameId] === key ? null : key; // click again to deselect
+    parlayManualSecondLegs[gameId] = parlayManualSecondLegs[gameId] === key ? null : key;
     renderParlayBuilder();
   }));
 }
