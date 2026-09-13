@@ -34,7 +34,8 @@ function topUsagePlayersForTeamFallback(playerRows, teamEspnAbbr, throughWeek, p
 // TD-specific pool builder: ranks by combined touches (targets + carries), since
 // poolFromRoster only sums a single field and targets-alone would badly under-rank RBs.
 function tdPoolFromRoster(roster, playerRows, count = 8) {
-  if (!roster) return null;
+  // Same fix as lib/roster-pool.js — an empty-but-truthy roster object must fall back too.
+  if (!roster || Object.keys(roster).length === 0) return null;
   const candidates = Object.values(roster).filter(entry => TD_POSITIONS.includes(entry.position));
 
   const { findHistoricalTeam } = require('../lib/roster-pool.js');
