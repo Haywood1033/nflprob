@@ -195,8 +195,8 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
   <div class="wrap" id="content"><div class="empty"><h3>Loading this week's slate…</h3></div></div>
 <script>
 const params = new URLSearchParams(location.search);
-const week = params.get('week') || 1;
-document.getElementById('weekLabel').textContent = 'Week ' + week;
+let week = params.get('week'); // null if not explicitly given in the URL - auto-detected below in that case
+document.getElementById('weekLabel').textContent = 'Week —';
 let currentTab = 'week';
 const rawData = { td: null, rush: null, rec: null, pass: null };
 const filterState = {
@@ -821,7 +821,21 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   else if (currentTab==='season') loadSeasonCategory(seasonCategory);
   else document.getElementById('content').innerHTML = '<div class="empty"><h3>Not built yet</h3></div>';
 }));
-loadThisWeek();
+async function initApp() {
+  if (!week) {
+    // No ?week= given explicitly — ask ESPN what the current real week actually is, instead
+    // of silently defaulting to 1 forever. Falls back to 1 only if this itself fails.
+    try {
+      const current = await fetch('/api/current-week').then(r => r.json());
+      week = current.week || 1;
+    } catch (e) {
+      week = 1;
+    }
+  }
+  document.getElementById('weekLabel').textContent = 'Week ' + week;
+  loadThisWeek();
+}
+initApp();
 </script>
 </body>
 </html>
