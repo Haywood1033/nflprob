@@ -13,8 +13,8 @@ module.exports = async function handler(req, res) {
   if (!current) return res.status(200).json({ week: null, year: null, error: 'Could not determine current week from ESPN' });
 
   cache = { data: current, timestamp: Date.now() };
-  // No CDN/edge caching — see api/props.js for why (in-memory cache above already covers
-  // this, and unlike an edge cache it always resets on a real deploy).
-  res.setHeader('Cache-Control', 'no-store');
+  // Short CDN cache — see api/props.js for the reasoning. Longer than the per-week endpoints
+  // (120s) since "the current week" changes at most once a day.
+  res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=60');
   return res.status(200).json(current);
 };

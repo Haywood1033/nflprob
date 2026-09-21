@@ -140,11 +140,14 @@ module.exports = async function handler(req, res) {
 
   const data = { week, year, players, timestamp: Date.now(), elapsed: Date.now() - start };
   cache = { data, timestamp: Date.now(), week };
-  // No CDN/edge caching: the in-memory cache above already serves repeat requests within
-  // its own TTL, resets cleanly on every real deploy, and is visible via `cached: true` in
-  // the response. An s-maxage header here would let Vercel's edge network keep answering
-  // from a stale cached response for up to 30+ minutes after a deploy, without ever
-  // reaching this (fixed) code — exactly the "I redeployed and it's still wrong" trap.
-  res.setHeader('Cache-Control', 'no-store');
+  // Short CDN cache (60s) — a full request here does several external fetches (ESPN roster
+  // per team, nflverse CSVs) and was measurably slow on every single tab load with no edge
+  // caching at all. 60s is short enough that a real deploy is only briefly stale (self-heals
+  // on its own well within a minute, unlike the 30+ minute s-maxage this replaced, which was
+  // long enough to look like the deploy hadn't taken effect at all) while still letting the
+  // edge answer repeat/concurrent requests for the same week instantly instead of re-running
+  // the whole fetch cycle. The in-memory cache above still backs this up for warm-instance
+  // reuse beyond that window.
+  res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=30');
   return res.status(200).json(data);
 };

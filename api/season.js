@@ -205,8 +205,9 @@ module.exports = async function handler(req, res) {
   const data = { category, year, results, missingSchedules, timestamp: Date.now(), elapsed: Date.now() - start };
   cache.data[cacheKey] = data;
   cache.timestamp[cacheKey] = Date.now();
-  // No CDN/edge caching — see api/props.js for why (in-memory cache above already covers
-  // this, and unlike an edge cache it always resets on a real deploy).
-  res.setHeader('Cache-Control', 'no-store');
+  // Short CDN cache — see api/props.js for the reasoning. Longer than the per-week endpoints
+  // (120s) since this is the heaviest computation in the app (loops every remaining game for
+  // every player) and its underlying data changes far less often within a session.
+  res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=60');
   return res.status(200).json(data);
 };

@@ -109,8 +109,9 @@ module.exports = async function handler(req, res) {
 
   const data = { week, year, players, timestamp: Date.now(), elapsed: Date.now() - start };
   cache = { data, timestamp: Date.now(), week };
-  // No CDN/edge caching — see api/props.js for why (in-memory cache above already covers
-  // this, and unlike an edge cache it always resets on a real deploy).
-  res.setHeader('Cache-Control', 'no-store');
+  // Short CDN cache — see api/props.js for the reasoning (60s balances "tabs feel slow with
+  // zero edge caching" against "a deploy looks broken for 30+ minutes," which the old
+  // no-store/long-s-maxage extremes each hit).
+  res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=30');
   return res.status(200).json(data);
 };
