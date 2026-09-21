@@ -66,9 +66,7 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .sig-chip.off{background:rgba(255,255,255,.03);color:var(--t3);border:1px solid rgba(255,255,255,.08)}
 .expand-row{cursor:pointer}
 .expand-row:hover{background:var(--bg2)}
-.expand-arrow{display:inline-block;font-size:9px;color:var(--t3);margin-right:6px;transition:transform .15s}
-.expand-arrow.open{transform:rotate(90deg)}
-.detail-row td{background:var(--bg3);padding:14px 20px !important;border-bottom:0.5px solid var(--bd)}
+.expand-arrow{display:inline-flex;color:var(--t3);margin-right:6px;vertical-align:-1px}
 .detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
 .detail-block-hdr{font-size:9px;font-family:var(--mono);color:var(--t3);text-transform:uppercase;margin-bottom:8px}
 .detail-sig-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px}
@@ -144,16 +142,24 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .slate-target-prob{color:var(--teal);font-family:var(--mono);font-weight:700}
 .slate-top-prop{padding:10px 14px;background:rgba(167,139,250,.06);border-top:0.5px solid var(--bg3)}
 .slate-top-prop-lbl{font-size:9px;font-family:var(--mono);color:var(--purple);margin-bottom:3px}
-.slate-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
-.slate-modal{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.18);border-radius:12px;max-width:440px;width:100%;max-height:85vh;overflow-y:auto;position:relative}
-.slate-modal-close{position:absolute;top:12px;right:12px;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--t3);cursor:pointer;background:rgba(255,255,255,0.05);transition:background .15s,color .15s}
-.slate-modal-close:hover{background:rgba(255,255,255,0.12);color:var(--t1)}
-.slate-modal .slate-matchup{padding:24px 24px 16px}
-.slate-modal .slate-logo-wrap{width:76px;height:76px}
-.slate-modal .slate-logo{width:56px;height:56px}
-.slate-modal .slate-team-implied{font-size:32px}
 .slate-modal-section{padding:12px 20px}
 .slate-modal-section-hdr{font-size:10px;font-family:var(--mono);color:var(--t3);margin-bottom:8px}
+
+/* DETAIL DRAWER — replaces both the old inline row-expansion (which pushed every row below
+   it down the page, awkward once the expanded content had "a lot of words") and the old
+   centered dialog-with-dark-backdrop for game cards. Same pattern as hrprob's player/pitcher
+   drawers: fixed to the right edge, no dimming backdrop, no body-scroll lock — the list
+   behind it stays fully visible and scrollable. Only one drawer, reused for every tab's
+   detail view (player row, best-play row, game card), so there's one open/close mechanism
+   and one set of interaction rules (click outside or Escape closes it) for the whole app. */
+#detail-drawer{display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:var(--bg2);border-left:0.5px solid rgba(255,255,255,0.16);box-shadow:-24px 0 48px rgba(0,0,0,.55);z-index:500;overflow-y:auto}
+.dd-header{padding:16px 20px;background:linear-gradient(135deg,var(--bg2) 0%,var(--bg3) 100%);border-bottom:1px solid var(--teal);display:flex;align-items:flex-start;justify-content:space-between;gap:12px;position:sticky;top:0}
+.dd-name{font-size:17px;font-weight:700;color:var(--t1)}
+.dd-sub{font-size:11px;font-family:var(--mono);color:var(--t3);margin-top:3px}
+.dd-close{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--t3);cursor:pointer;background:rgba(255,255,255,0.05);flex-shrink:0;transition:background .15s,color .15s}
+.dd-close:hover{background:rgba(255,255,255,0.12);color:var(--t1)}
+.dd-body{padding:16px 20px}
+@media(max-width:600px){#detail-drawer{width:100%;max-width:100%;border-left:none}}
 .best-list{display:flex;flex-direction:column;gap:8px}
 .best-row{background:var(--bg2);border:0.5px solid rgba(255,255,255,0.11);border-radius:8px;padding:12px 16px}
 .best-row-top{display:flex;align-items:center;gap:14px;cursor:pointer;margin:-4px;padding:4px;border-radius:6px;transition:background .15s}
@@ -171,8 +177,6 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .best-sub{font-size:11px;font-family:var(--mono);color:var(--t3);margin-top:1px}
 .best-value{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--teal);min-width:70px;text-align:right}
 .best-badge{font-family:var(--mono);font-size:9px;font-weight:700;min-width:90px;text-align:right;display:flex;align-items:center;justify-content:flex-end;gap:4px}
-.best-expand{margin-top:8px;padding-top:10px;border-top:0.5px solid var(--bg3);display:none}
-.best-expand.open{display:block}
 
 /* PARLAY BUILDER */
 .parlay-subtabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
@@ -270,6 +274,53 @@ function setStatus(cached) {
 function loadingHTML(label) { return `<div class="loading-state"><div class="spinner"></div><div>${label}</div></div>`; }
 function errorHTML(e) { return `<div class="error-state"><h3>Something went wrong loading this data</h3><div>The app will keep working on other tabs — try switching tabs and back, or reload.</div><details><summary>Technical detail</summary><pre>${(e && e.message) || e}</pre></details></div>`; }
 
+// DETAIL DRAWER — one reusable slide-over panel for every "show me more" interaction in the
+// app (a player row, a best-play row, a game card). Built once at load and just repopulated
+// on each open, same as a single-instance dialog. Deliberately NOT a centered modal: no
+// dimming backdrop and no body-scroll lock, so the list/table it was opened from stays fully
+// visible and usable — clicking a different row just swaps the drawer's content in place.
+const detailDrawer = document.createElement('div');
+detailDrawer.id = 'detail-drawer';
+detailDrawer.innerHTML = `<div class="dd-header"><div id="dd-header-content" style="flex:1;min-width:0"></div><div class="dd-close" id="dd-close-btn"></div></div><div class="dd-body" id="dd-body-content"></div>`;
+document.body.appendChild(detailDrawer);
+detailDrawer.querySelector('#dd-close-btn').innerHTML = icon('cross');
+detailDrawer.querySelector('#dd-close-btn').addEventListener('click', closeDrawer);
+
+let _ddOpenedAt = 0;
+function openDrawer(headerHTML, bodyHTML) {
+  document.getElementById('dd-header-content').innerHTML = headerHTML;
+  document.getElementById('dd-body-content').innerHTML = bodyHTML;
+  detailDrawer.style.display = 'block';
+  detailDrawer.scrollTop = 0;
+  _ddOpenedAt = Date.now();
+}
+function closeDrawer() { detailDrawer.style.display = 'none'; }
+// Click-outside-closes, registered once. The 50ms guard skips the very click that just opened
+// (or swapped) the drawer — that click is still bubbling up to document when this fires, and
+// would otherwise immediately close what it just opened.
+document.addEventListener('click', (e) => {
+  if (detailDrawer.style.display === 'block' && Date.now() - _ddOpenedAt >= 50 && !detailDrawer.contains(e.target)) closeDrawer();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+
+// SHORT-LIVED CLIENT-SIDE FETCH CACHE — a lot of the perceived "every tab is slow" feeling
+// isn't the backend, it's this file: the same endpoint (e.g. /api/props?week=2) gets
+// independently re-fetched from This Week, Slate, Anytime TD, Best Plays, and Parlay Builder
+// — five separate network round-trips (each re-running the backend's own external-API fetch
+// cycle against ESPN/nflverse) for data that was already pulled seconds ago just by clicking
+// through tabs. Caching per-URL in memory for the lifetime of this page load means hopping
+// between tabs that share an endpoint costs nothing after the first hit; a real reload always
+// starts empty, so this can never show data older than one page visit.
+const _fetchCache = new Map();
+const FETCH_CACHE_TTL = 90 * 1000;
+async function cachedJSON(url) {
+  const hit = _fetchCache.get(url);
+  if (hit && Date.now() - hit.ts < FETCH_CACHE_TTL) return hit.data;
+  const data = await fetch(url).then(r => r.json());
+  _fetchCache.set(url, { data, ts: Date.now() });
+  return data;
+}
+
 const params = new URLSearchParams(location.search);
 let week = params.get('week'); // null if not explicitly given in the URL - auto-detected below in that case
 document.getElementById('weekLabel').textContent = 'Week —';
@@ -329,9 +380,7 @@ const SIGNAL_DESC = {
   'Sample Confidence':'Enough recent volume that the read is not small-sample noise','Bellcow Volume':"Projected carries 16+ this week",
   'Featured Target':"Projected targets 8+ this week",'Pass-Heavy Script':"Projected attempts 36+ this week",
 };
-const expandedKeys = { td:new Set(), rush:new Set(), rec:new Set(), pass:new Set(), best:new Set() };
 function rowKey(p) { return p.name + '|' + p.team; }
-function toggleExpand(tab, key, rerenderFn) { const s = expandedKeys[tab]; if (s.has(key)) s.delete(key); else s.add(key); rerenderFn(); }
 function signalFilterPillsHTML(tab, labels, active) {
   return `<div class="sig-filter-pills"><div class="sig-filter-pill${active==='all'?' on':''}" data-sigfilter-tab="${tab}" data-sigfilter="all">All Signals</div>
     ${labels.map(l => `<div class="sig-filter-pill${active===l?' on':''}" data-sigfilter-tab="${tab}" data-sigfilter="${l}">${SIGNAL_ABBR[l]||l}</div>`).join('')}</div>`;
@@ -351,8 +400,8 @@ async function loadThisWeek() {
   document.getElementById('content').innerHTML = loadingHTML("Loading this week's slate…");
   try {
     const [teamRes, propsRes] = await Promise.all([
-      fetch('/api/team-model?week=' + week).then(r=>r.json()),
-      fetch('/api/props?week=' + week).then(r=>r.json()),
+      cachedJSON('/api/team-model?week=' + week),
+      cachedJSON('/api/props?week=' + week),
     ]);
     renderThisWeek(teamRes, propsRes);
   } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
@@ -406,9 +455,9 @@ async function loadTeamModel() {
   document.getElementById('content').innerHTML = loadingHTML('Loading slate…');
   try {
     const [teamRes, tdRes, rushRes, recRes, passRes] = await Promise.all([
-      fetch('/api/team-model?week=' + week).then(r=>r.json()), fetch('/api/props?week=' + week).then(r=>r.json()),
-      fetch('/api/rush-props?week=' + week).then(r=>r.json()), fetch('/api/rec-props?week=' + week).then(r=>r.json()),
-      fetch('/api/pass-props?week=' + week).then(r=>r.json()),
+      cachedJSON('/api/team-model?week=' + week), cachedJSON('/api/props?week=' + week),
+      cachedJSON('/api/rush-props?week=' + week), cachedJSON('/api/rec-props?week=' + week),
+      cachedJSON('/api/pass-props?week=' + week),
     ]);
     renderTeamModel(teamRes, { td: tdRes.players||[], rush: rushRes.players||[], rec: recRes.players||[], pass: passRes.players||[] });
   } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
@@ -453,35 +502,41 @@ function renderTeamModel(d, props) {
       ${topProp?`<div class="slate-top-prop"><div class="slate-top-prop-lbl">Top Prop Projection</div><div class="slate-target-row"><span class="slate-target-val">${topProp.name} — ${topProp.statLabel}</span><span class="slate-target-prob">${topProp.value}</span></div></div>`:''}</div>`;
   }).join('');
   document.getElementById('content').innerHTML = '<div class="slate-grid">' + cards + '</div>';
-  document.querySelectorAll('.slate-card').forEach(card => card.addEventListener('click', () => openSlateModal(Number(card.dataset.slateIdx))));
+  document.querySelectorAll('.slate-card').forEach(card => card.addEventListener('click', () => openSlateDrawer(Number(card.dataset.slateIdx))));
 }
-function openSlateModal(idx) {
-  closeSlateModal(); const sg = slateGames[idx]; if (!sg) return;
+function openSlateDrawer(idx) {
+  const sg = slateGames[idx]; if (!sg) return;
   const {g,m,homeTd,awayTd,allProps,weatherText} = sg; const isShootout = m.shootoutSignal;
   const top3Row = p => `<div class="slate-target-row"><span class="slate-target-val">${p.name} <span style="color:var(--t3)">(${p.position||p.team})</span></span><span class="slate-target-prob">${p.prob}%</span></div>`;
   const propRow = p => `<div class="slate-target-row"><span class="slate-target-val">${p.name} — ${p.statLabel}</span><span class="slate-target-prob">${p.value}</span></div>`;
-  const overlay = document.createElement('div'); overlay.className='slate-overlay';
-  overlay.innerHTML = `<div class="slate-modal"><div class="slate-modal-close">${icon('cross')}</div>
-    <div class="slate-hdr"><div class="slate-weather">${weatherText?icon('sun','color:var(--t3)')+' '+weatherText:''}</div>
-    <div>${isShootout?`<span class="badge-shootout">${icon('flame')} Shootout</span>`:m.lowScoringSignal?`<span class="badge-lowscore">${icon('shield')} Low Scoring</span>`:''}</div></div>
-    <div class="slate-matchup"><div class="slate-team"><div class="slate-logo-wrap"><img class="slate-logo" src="${espnLogoUrl(g.awayAbbr)}" onerror="this.parentElement.style.visibility='hidden'"></div><div class="slate-team-name">${g.awayTeam}</div><div class="slate-team-implied">${m.awayImplied??'—'}</div></div>
+  const leanBits = [weatherText?icon('sun')+' '+weatherText:'', isShootout?icon('flame')+' Shootout':m.lowScoringSignal?icon('shield')+' Low Scoring':''].filter(Boolean);
+  const header = `<div class="dd-name">${g.awayTeam} @ ${g.homeTeam}</div><div class="dd-sub" style="display:flex;gap:10px;align-items:center">${leanBits.join('<span style="color:var(--t3)">·</span>')}</div>`;
+  const body = `<div class="slate-matchup" style="padding:0 0 16px">
+    <div class="slate-team"><div class="slate-logo-wrap"><img class="slate-logo" src="${espnLogoUrl(g.awayAbbr)}" onerror="this.parentElement.style.visibility='hidden'"></div><div class="slate-team-name">${g.awayTeam}</div><div class="slate-team-implied">${m.awayImplied??'—'}</div></div>
     <div class="slate-vs">@</div><div class="slate-team"><div class="slate-logo-wrap"><img class="slate-logo" src="${espnLogoUrl(g.homeAbbr)}" onerror="this.parentElement.style.visibility='hidden'"></div><div class="slate-team-name">${g.homeTeam}</div><div class="slate-team-implied">${m.homeImplied??'—'}</div></div></div>
     <div class="slate-meta-row"><div class="slate-meta-item"><div class="slate-meta-val">${m.total??'—'}</div><div class="slate-meta-lbl">Total</div></div>
     <div class="slate-meta-item center"><div class="slate-meta-val">${m.awayWinProb??'—'}%</div><div class="slate-meta-lbl">${g.awayTeam} Win</div></div>
     <div class="slate-meta-item"><div class="slate-meta-val">${m.homeWinProb??'—'}%</div><div class="slate-meta-lbl">${g.homeTeam} Win</div></div></div>
-    <div class="slate-modal-section"><div class="slate-modal-section-hdr">${g.awayTeam} — Top TD Threats</div>${awayTd.slice(0,3).map(top3Row).join('')||'<div class="gs-meta">No data</div>'}</div>
-    <div class="slate-modal-section"><div class="slate-modal-section-hdr">${g.homeTeam} — Top TD Threats</div>${homeTd.slice(0,3).map(top3Row).join('')||'<div class="gs-meta">No data</div>'}</div>
-    <div class="slate-modal-section"><div class="slate-modal-section-hdr">Top Prop Projections (Game)</div>${allProps.slice(0,5).map(propRow).join('')||'<div class="gs-meta">No data</div>'}</div></div>`;
-  overlay.addEventListener('click', e => { if (e.target===overlay) closeSlateModal(); });
-  overlay.querySelector('.slate-modal-close').addEventListener('click', closeSlateModal);
-  document.addEventListener('keydown', slateEscHandler); document.body.appendChild(overlay);
+    <div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">${g.awayTeam} — Top TD Threats</div>${awayTd.slice(0,3).map(top3Row).join('')||'<div class="gs-meta">No data</div>'}</div>
+    <div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">${g.homeTeam} — Top TD Threats</div>${homeTd.slice(0,3).map(top3Row).join('')||'<div class="gs-meta">No data</div>'}</div>
+    <div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">Top Prop Projections (Game)</div>${allProps.slice(0,5).map(propRow).join('')||'<div class="gs-meta">No data</div>'}</div>`;
+  openDrawer(header, body);
 }
-function slateEscHandler(e) { if (e.key==='Escape') closeSlateModal(); }
-function closeSlateModal() { const o=document.querySelector('.slate-overlay'); if (o) o.remove(); document.removeEventListener('keydown', slateEscHandler); }
 async function loadTdProps() {
   document.getElementById('content').innerHTML = loadingHTML('Loading anytime TD props…');
-  try { const d = await fetch('/api/props?week=' + week).then(r=>r.json()); rawData.td = d; renderTdProps(d); }
+  try { const d = await cachedJSON('/api/props?week=' + week); rawData.td = d; renderTdProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
+}
+function playerDrawerHeader(p) {
+  return `<div class="dd-name">${p.name}</div><div class="dd-sub">${p.position?p.position+' · ':''}${p.team} vs ${p.opponent}</div>`;
+}
+function tdDrawerBody(p) {
+  return `<div class="detail-grid">
+    <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
+    <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Anytime TD Probability</span><span style="color:var(--teal);font-family:var(--mono)">${p.prob}%</span></div>
+    <div class="detail-sig-row"><span>Touches (L5)</span><span style="font-family:var(--mono)">${p.touches}</span></div>
+    <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
+    ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div>`;
 }
 function renderTdProps(d) {
   setStatus(d.cached);
@@ -490,31 +545,34 @@ function renderTdProps(d) {
   const {matchup,position,signal} = filterState.td; const players = filterPlayers(allPlayers, matchup, position, signal);
   const filterBarHTML = `<div class="filter-bar">${renderMatchupSelect('td',allPlayers)}${renderPositionPills('td',['QB','RB','WR','TE'])}<span class="filter-count">${players.length} of ${allPlayers.length} players</span></div>
     <div style="margin-bottom:14px">${signalFilterPillsHTML('td',TAB_SIGNALS.td,signal)}</div>`;
+  const byKey = {};
   const rows = players.map(p => {
     const badgeHtml = badgeHTML(p.badge, 'badge-shootout');
-    const key = rowKey(p); const isOpen = expandedKeys.td.has(key);
-    const mainRow = `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow${isOpen?' open':''}">▶</span>${p.name}</td>
+    const key = rowKey(p); byKey[key] = p;
+    return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
       <td class="td-pos">${p.position}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.prob}%</td>
       <td class="td-touch">${p.touches}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
-    const detailRow = isOpen ? `<tr class="detail-row"><td colspan="7"><div class="detail-grid">
-      <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
-      <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Anytime TD Probability</span><span style="color:var(--teal);font-family:var(--mono)">${p.prob}%</span></div>
-      <div class="detail-sig-row"><span>Touches (L5)</span><span style="font-family:var(--mono)">${p.touches}</span></div>
-      <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
-      ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div></td></tr>` : '';
-    return mainRow + detailRow;
   }).join('');
   document.getElementById('content').innerHTML = filterBarHTML + `<div class="table-scroll"><table class="td-table">
     <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Anytime TD%</th><th class="num-col">Touches (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
     <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
-  document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => toggleExpand('td', row.dataset.expandKey, () => renderTdProps(d))));
+  document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => { const p = byKey[row.dataset.expandKey]; openDrawer(playerDrawerHeader(p), tdDrawerBody(p)); }));
   attachSignalFilterHandlers('td', label => { filterState.td.signal = label; renderTdProps(d); });
   attachFilterHandlers('td', renderTdProps);
 }
 async function loadRushProps() {
   document.getElementById('content').innerHTML = loadingHTML('Loading rushing props…');
-  try { const d = await fetch('/api/rush-props?week=' + week).then(r=>r.json()); rawData.rush = d; renderRushProps(d); }
+  try { const d = await cachedJSON('/api/rush-props?week=' + week); rawData.rush = d; renderRushProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
+}
+function rushDrawerBody(p) {
+  return `<div class="detail-grid">
+    <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
+    <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Projected Rushing Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
+    <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
+    <div class="detail-sig-row"><span>Carries (L5)</span><span style="font-family:var(--mono)">${p.carries}</span></div>
+    <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
+    ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div>`;
 }
 function renderRushProps(d) {
   setStatus(d.cached);
@@ -523,32 +581,34 @@ function renderRushProps(d) {
   const {matchup,signal} = filterState.rush; const players = filterPlayers(allPlayers, matchup, null, signal);
   const filterBarHTML = `<div class="filter-bar">${renderMatchupSelect('rush',allPlayers)}<span class="filter-count">${players.length} of ${allPlayers.length} players</span></div>
     <div style="margin-bottom:14px">${signalFilterPillsHTML('rush',TAB_SIGNALS.rush,signal)}</div>`;
+  const byKey = {};
   const rows = players.map(p => {
     const badgeHtml = badgeHTML(p.badge, 'badge-shootout');
-    const key = rowKey(p); const isOpen = expandedKeys.rush.has(key);
-    const mainRow = `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow${isOpen?' open':''}">▶</span>${p.name}</td>
+    const key = rowKey(p); byKey[key] = p;
+    return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
       <td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td><td class="td-touch">${p.floor}–${p.ceiling}</td>
       <td class="td-touch">${p.carries}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
-    const detailRow = isOpen ? `<tr class="detail-row"><td colspan="7"><div class="detail-grid">
-      <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
-      <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Projected Rushing Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
-      <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
-      <div class="detail-sig-row"><span>Carries (L5)</span><span style="font-family:var(--mono)">${p.carries}</span></div>
-      <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
-      ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div></td></tr>` : '';
-    return mainRow + detailRow;
   }).join('');
   document.getElementById('content').innerHTML = filterBarHTML + `<div class="table-scroll"><table class="td-table">
     <thead><tr><th>Player</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Carries (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
     <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
-  document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => toggleExpand('rush', row.dataset.expandKey, () => renderRushProps(d))));
+  document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => { const p = byKey[row.dataset.expandKey]; openDrawer(playerDrawerHeader(p), rushDrawerBody(p)); }));
   attachSignalFilterHandlers('rush', label => { filterState.rush.signal = label; renderRushProps(d); });
   attachFilterHandlers('rush', renderRushProps);
 }
 async function loadRecProps() {
   document.getElementById('content').innerHTML = loadingHTML('Loading receiving props…');
-  try { const d = await fetch('/api/rec-props?week=' + week).then(r=>r.json()); rawData.rec = d; renderRecProps(d); }
+  try { const d = await cachedJSON('/api/rec-props?week=' + week); rawData.rec = d; renderRecProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
+}
+function recDrawerBody(p) {
+  return `<div class="detail-grid">
+    <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
+    <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Projected Receiving Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
+    <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
+    <div class="detail-sig-row"><span>Targets (L5)</span><span style="font-family:var(--mono)">${p.targets}</span></div>
+    <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
+    ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div>`;
 }
 function renderRecProps(d) {
   setStatus(d.cached);
@@ -557,32 +617,34 @@ function renderRecProps(d) {
   const {matchup,signal} = filterState.rec; const players = filterPlayers(allPlayers, matchup, null, signal);
   const filterBarHTML = `<div class="filter-bar">${renderMatchupSelect('rec',allPlayers)}<span class="filter-count">${players.length} of ${allPlayers.length} players</span></div>
     <div style="margin-bottom:14px">${signalFilterPillsHTML('rec',TAB_SIGNALS.rec,signal)}</div>`;
+  const byKey = {};
   const rows = players.map(p => {
     const badgeHtml = badgeHTML(p.badge, 'badge-shootout');
-    const key = rowKey(p); const isOpen = expandedKeys.rec.has(key);
-    const mainRow = `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow${isOpen?' open':''}">▶</span>${p.name}</td>
+    const key = rowKey(p); byKey[key] = p;
+    return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
       <td class="td-pos">${p.position}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td>
       <td class="td-touch">${p.floor}–${p.ceiling}</td><td class="td-touch">${p.targets}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
-    const detailRow = isOpen ? `<tr class="detail-row"><td colspan="8"><div class="detail-grid">
-      <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
-      <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Projected Receiving Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
-      <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
-      <div class="detail-sig-row"><span>Targets (L5)</span><span style="font-family:var(--mono)">${p.targets}</span></div>
-      <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
-      ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div></td></tr>` : '';
-    return mainRow + detailRow;
   }).join('');
   document.getElementById('content').innerHTML = filterBarHTML + `<div class="table-scroll"><table class="td-table">
     <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Targets (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
     <tbody>${rows||'<tr><td colspan="8" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
-  document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => toggleExpand('rec', row.dataset.expandKey, () => renderRecProps(d))));
+  document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => { const p = byKey[row.dataset.expandKey]; openDrawer(playerDrawerHeader(p), recDrawerBody(p)); }));
   attachSignalFilterHandlers('rec', label => { filterState.rec.signal = label; renderRecProps(d); });
   attachFilterHandlers('rec', renderRecProps);
 }
 async function loadPassProps() {
   document.getElementById('content').innerHTML = loadingHTML('Loading passing props…');
-  try { const d = await fetch('/api/pass-props?week=' + week).then(r=>r.json()); rawData.pass = d; renderPassProps(d); }
+  try { const d = await cachedJSON('/api/pass-props?week=' + week); rawData.pass = d; renderPassProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
+}
+function passDrawerBody(p) {
+  return `<div class="detail-grid">
+    <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
+    <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Projected Passing Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
+    <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
+    <div class="detail-sig-row"><span>Attempts (L5)</span><span style="font-family:var(--mono)">${p.attempts}</span></div>
+    <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
+    ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div>`;
 }
 function renderPassProps(d) {
   setStatus(d.cached);
@@ -591,25 +653,18 @@ function renderPassProps(d) {
   const {matchup,signal} = filterState.pass; const players = filterPlayers(allPlayers, matchup, null, signal);
   const filterBarHTML = `<div class="filter-bar">${renderMatchupSelect('pass',allPlayers)}<span class="filter-count">${players.length} of ${allPlayers.length} QBs</span></div>
     <div style="margin-bottom:14px">${signalFilterPillsHTML('pass',TAB_SIGNALS.pass,signal)}</div>`;
+  const byKey = {};
   const rows = players.map(p => {
     const badgeHtml = badgeHTML(p.badge, 'badge-shootout');
-    const key = rowKey(p); const isOpen = expandedKeys.pass.has(key);
-    const mainRow = `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow${isOpen?' open':''}">▶</span>${p.name}</td>
+    const key = rowKey(p); byKey[key] = p;
+    return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
       <td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td><td class="td-touch">${p.floor}–${p.ceiling}</td>
       <td class="td-touch">${p.attempts}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
-    const detailRow = isOpen ? `<tr class="detail-row"><td colspan="7"><div class="detail-grid">
-      <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
-      <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Projected Passing Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
-      <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
-      <div class="detail-sig-row"><span>Attempts (L5)</span><span style="font-family:var(--mono)">${p.attempts}</span></div>
-      <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
-      ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div></td></tr>` : '';
-    return mainRow + detailRow;
   }).join('');
   document.getElementById('content').innerHTML = filterBarHTML + `<div class="table-scroll"><table class="td-table">
     <thead><tr><th>QB</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Attempts (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
     <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
-  document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => toggleExpand('pass', row.dataset.expandKey, () => renderPassProps(d))));
+  document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => { const p = byKey[row.dataset.expandKey]; openDrawer(playerDrawerHeader(p), passDrawerBody(p)); }));
   attachSignalFilterHandlers('pass', label => { filterState.pass.signal = label; renderPassProps(d); });
   attachFilterHandlers('pass', renderPassProps);
 }
@@ -619,8 +674,8 @@ async function loadBestPlays() {
   document.getElementById('content').innerHTML = loadingHTML('Finding the best plays this week…');
   try {
     const [tdRes, rushRes, recRes, passRes] = await Promise.all([
-      fetch('/api/props?week=' + week).then(r=>r.json()), fetch('/api/rush-props?week=' + week).then(r=>r.json()),
-      fetch('/api/rec-props?week=' + week).then(r=>r.json()), fetch('/api/pass-props?week=' + week).then(r=>r.json()),
+      cachedJSON('/api/props?week=' + week), cachedJSON('/api/rush-props?week=' + week),
+      cachedJSON('/api/rec-props?week=' + week), cachedJSON('/api/pass-props?week=' + week),
     ]);
     bestPlaysRaw = { td: tdRes.players||[], rush: rushRes.players||[], rec: recRes.players||[], pass: passRes.players||[] };
     renderBestPlays();
@@ -662,19 +717,24 @@ function renderBestPlays() {
   if (!shown.length) { document.getElementById('content').innerHTML = pillsHTML + '<div class="empty"><h3>No notable plays match this filter</h3></div>'; attachBestPlaysHandlers(); return; }
   const typeClass = {TD:'best-type-td',RUSH:'best-type-rush',REC:'best-type-rec',PASS:'best-type-pass'};
   const rowClass = badge => badge.label.includes('Elite')?' elite':badge.label.includes('All-Star')?' allstar':'';
-  const rows = shown.map((p,i) => { const key = rowKey(p)+'|'+p.propType; const isOpen = expandedKeys.best.has(key);
+  const byKey = {};
+  const rows = shown.map((p,i) => { const key = rowKey(p)+'|'+p.propType; byKey[key] = p;
     return `<div class="best-row${rowClass(p.badge)}"><div class="best-row-top" data-expand-key="${key}">
-      <div class="best-rank">${i+1}</div><span class="expand-arrow${isOpen?' open':''}">▶</span>
+      <div class="best-rank">${i+1}</div><span class="expand-arrow">${icon('chevron')}</span>
       <div class="best-type-tag ${typeClass[p.propType]}">${p.typeLabel}</div>
       <div class="best-info"><div class="best-name">${p.name}${p.position?` <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.position})</span>`:''}</div><div class="best-sub">${p.team} vs ${p.opponent}</div></div>
-      <div class="best-value">${p.displayValue}</div><div class="best-badge" style="color:${p.badge.color}">${badgeIcon(p.badge.label)}${badgeText(p.badge.label)}</div></div>
-      <div class="best-expand${isOpen?' open':''}"><div class="detail-grid"><div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
-      <div><div class="detail-block-hdr">Key Stats</div>${p.detailStats.map(([l,v])=>`<div class="detail-sig-row"><span>${l}</span><span style="color:var(--teal);font-family:var(--mono)">${v}</span></div>`).join('')}
-      <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div></div></div></div></div>`;
+      <div class="best-value">${p.displayValue}</div><div class="best-badge" style="color:${p.badge.color}">${badgeIcon(p.badge.label)}${badgeText(p.badge.label)}</div></div></div>`;
   }).join('');
   document.getElementById('content').innerHTML = pillsHTML + `<div class="best-list">${rows}</div>
     <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">Only plays that cleared a signal-backed badge show here.</div>`;
-  document.querySelectorAll('.best-row-top').forEach(row => row.addEventListener('click', () => toggleExpand('best', row.dataset.expandKey, renderBestPlays)));
+  document.querySelectorAll('.best-row-top').forEach(row => row.addEventListener('click', () => {
+    const p = byKey[row.dataset.expandKey];
+    const header = `<div class="dd-name">${p.name}${p.position?` <span style="color:var(--t3);font-weight:400;font-size:13px">(${p.position})</span>`:''}</div><div class="dd-sub">${p.team} vs ${p.opponent}</div>`;
+    const body = `<div class="detail-grid"><div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
+      <div><div class="detail-block-hdr">Key Stats</div>${p.detailStats.map(([l,v])=>`<div class="detail-sig-row"><span>${l}</span><span style="color:var(--teal);font-family:var(--mono)">${v}</span></div>`).join('')}
+      <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div></div></div>`;
+    openDrawer(header, body);
+  }));
   attachBestPlaysHandlers();
 }
 function attachBestPlaysHandlers() {
@@ -709,7 +769,7 @@ let parlayManualSecondLegOpen = new Set();
 async function loadParlayBuilder() {
   document.getElementById('content').innerHTML = loadingHTML('Building parlays…');
   try {
-    const d = await fetch('/api/props?week=' + week).then(r=>r.json());
+    const d = await cachedJSON('/api/props?week=' + week);
     parlayRaw = d.players || [];
     renderParlayBuilder();
   } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
@@ -853,7 +913,7 @@ async function loadSeasonCategory(category) {
   seasonCategory = category;
   if (seasonRawData[category]) { renderSeasonProjections(seasonRawData[category]); return; }
   document.getElementById('content').innerHTML = renderSeasonPills(category) + loadingHTML('Loading season projections…');
-  try { const d = await fetch('/api/season?category=' + category).then(r=>r.json()); seasonRawData[category] = d; renderSeasonProjections(d); }
+  try { const d = await cachedJSON('/api/season?category=' + category); seasonRawData[category] = d; renderSeasonProjections(d); }
   catch (e) { document.getElementById('content').innerHTML = renderSeasonPills(category) + errorHTML(e); }
 }
 function renderSeasonPills(active) {
@@ -902,7 +962,7 @@ async function initApp() {
     // No ?week= given explicitly — ask ESPN what the current real week actually is, instead
     // of silently defaulting to 1 forever. Falls back to 1 only if this itself fails.
     try {
-      const current = await fetch('/api/current-week').then(r => r.json());
+      const current = await cachedJSON('/api/current-week');
       week = current.week || 1;
     } catch (e) {
       week = 1;
