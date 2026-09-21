@@ -9,7 +9,7 @@ const { poolFromRoster } = require('../lib/roster-pool.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
-const TD_POSITIONS = ['RB', 'WR', 'TE'];
+const TD_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
 
 // Recency-limited, same reasoning as poolFromRoster's fix (lib/roster-pool.js): rank by
 // who's actually getting touches lately, not by whoever accumulated the most earlier in the
@@ -26,7 +26,7 @@ function topUsagePlayersForTeamFallback(playerRows, teamEspnAbbr, throughWeek, p
     byName[r.player_display_name].rows.push(r);
   }
 
-  const byPos = { RB: [], WR: [], TE: [] };
+  const byPos = { QB: [], RB: [], WR: [], TE: [] };
   Object.entries(byName).forEach(([name, p]) => {
     if (!byPos[p.position]) return;
     const recent = recentGames(p.rows, throughWeek, lastN);
@@ -105,7 +105,7 @@ module.exports = async function handler(req, res) {
     for (const t of teamsInGame) {
       const roster = rosterCache[t.abbr];
 
-      const pool = tdPoolFromRoster(roster, playerRows, 8, throughWeek)
+      const pool = tdPoolFromRoster(roster, playerRows, 9, throughWeek)
         || topUsagePlayersForTeamFallback(playerRows, t.abbr, throughWeek);
 
       for (const candidate of pool) {
