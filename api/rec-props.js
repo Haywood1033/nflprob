@@ -3,28 +3,32 @@ const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.j
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computeRecUsage, computeRecDefenseAllowed, projectRecYards, getRecSignals } = require('../lib/rec-scoring.js');
-const { recencyWindow } = require('../lib/recency-window.js');
+const { recencyWindow, recentGames } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
 const { poolFromRoster } = require('../lib/roster-pool.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
 
-// Fallback ONLY used if the live roster fetch failed.
+// Fallback ONLY used if the live roster fetch failed. Recency-limited, same reasoning as
+// poolFromRoster's fix: rank by who's actually getting targets lately.
 function topReceiversForTeamFallback(playerRows, teamEspnAbbr, throughWeek, count = 5) {
   const team = toNflverseAbbr(teamEspnAbbr);
-  const weekFilter = throughWeek < 1 ? () => true : (r) => Number(r.week) <= throughWeek;
+  const lastN = recencyWindow(throughWeek);
   const teamRows = playerRows.filter(r => r.team === team && (r.position === 'WR' || r.position === 'TE')
-    && r.season_type === 'REG' && weekFilter(r));
+    && r.season_type === 'REG');
 
   const byName = {};
   for (const r of teamRows) {
-    const targets = parseFloat(r.targets) || 0;
-    if (!byName[r.player_display_name]) byName[r.player_display_name] = { name: r.player_display_name, histTeam: team, targets: 0 };
-    byName[r.player_display_name].targets += targets;
+    if (!byName[r.player_display_name]) byName[r.player_display_name] = [];
+    byName[r.player_display_name].push(r);
   }
-  return Object.values(byName)
-    .map(p => ({ name: p.name, histTeam: p.histTeam, volume: p.targets }))
+  return Object.entries(byName)
+    .map(([name, rows]) => {
+      const recent = recentGames(rows, throughWeek, lastN);
+      const targets = recent.reduce((s, r) => s + (parseFloat(r.targets) || 0), 0);
+      return { name, histTeam: team, volume: targets };
+    })
     .sort((a, b) => b.volume - a.volume).slice(0, count);
 }
 
@@ -70,7 +74,7 @@ module.exports = async function handler(req, res) {
     for (const t of teamsInGame) {
       const roster = rosterCache[t.abbr];
 
-      const pool = poolFromRoster(roster, playerRows, ['WR', 'TE'], 'targets', 5)
+      const pool = poolFromRoster(roster, playerRows, ['WR', 'TE'], 'targets', 5, throughWeek)
         || topReceiversForTeamFallback(playerRows, t.abbr, throughWeek);
 
       for (const candidate of pool) {
@@ -107,6 +111,8 @@ module.exports = async function handler(req, res) {
 
   const data = { week, year, players, timestamp: Date.now(), elapsed: Date.now() - start };
   cache = { data, timestamp: Date.now(), week };
-  res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate=300');
+  // No CDN/edge caching — see api/props.js for why (in-memory cache above already covers
+  // this, and unlike an edge cache it always resets on a real deploy).
+  res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json(data);
 };

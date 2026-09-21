@@ -3,26 +3,31 @@ const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.j
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computeRushUsage, computeRushDefenseAllowed, projectRushYards, getRushSignals } = require('../lib/rush-scoring.js');
-const { recencyWindow } = require('../lib/recency-window.js');
+const { recencyWindow, recentGames } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
 const { poolFromRoster } = require('../lib/roster-pool.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
 
+// Recency-limited, same reasoning as poolFromRoster's fix: rank by who's actually getting
+// carries lately, not by whoever accumulated the most earlier in the season.
 function topRushersForTeamFallback(playerRows, teamEspnAbbr, throughWeek, count = 4) {
   const team = toNflverseAbbr(teamEspnAbbr);
-  const weekFilter = throughWeek < 1 ? () => true : (r) => Number(r.week) <= throughWeek;
-  const teamRows = playerRows.filter(r => r.team === team && r.position === 'RB' && r.season_type === 'REG' && weekFilter(r));
+  const lastN = recencyWindow(throughWeek);
+  const teamRows = playerRows.filter(r => r.team === team && r.position === 'RB' && r.season_type === 'REG');
 
   const byName = {};
   for (const r of teamRows) {
-    const carries = parseFloat(r.carries) || 0;
-    if (!byName[r.player_display_name]) byName[r.player_display_name] = { name: r.player_display_name, histTeam: team, carries: 0 };
-    byName[r.player_display_name].carries += carries;
+    if (!byName[r.player_display_name]) byName[r.player_display_name] = [];
+    byName[r.player_display_name].push(r);
   }
-  return Object.values(byName)
-    .map(p => ({ name: p.name, histTeam: p.histTeam, volume: p.carries }))
+  return Object.entries(byName)
+    .map(([name, rows]) => {
+      const recent = recentGames(rows, throughWeek, lastN);
+      const carries = recent.reduce((s, r) => s + (parseFloat(r.carries) || 0), 0);
+      return { name, histTeam: team, volume: carries };
+    })
     .sort((a, b) => b.volume - a.volume).slice(0, count);
 }
 
@@ -68,7 +73,7 @@ module.exports = async function handler(req, res) {
     for (const t of teamsInGame) {
       const roster = rosterCache[t.abbr];
 
-      const pool = poolFromRoster(roster, playerRows, ['RB'], 'carries', 4)
+      const pool = poolFromRoster(roster, playerRows, ['RB'], 'carries', 4, throughWeek)
         || topRushersForTeamFallback(playerRows, t.abbr, throughWeek);
 
       for (const candidate of pool) {
@@ -104,6 +109,8 @@ module.exports = async function handler(req, res) {
 
   const data = { week, year, players, timestamp: Date.now(), elapsed: Date.now() - start };
   cache = { data, timestamp: Date.now(), week };
-  res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate=300');
+  // No CDN/edge caching — see api/props.js for why (in-memory cache above already covers
+  // this, and unlike an edge cache it always resets on a real deploy).
+  res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json(data);
 };
