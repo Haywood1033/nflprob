@@ -140,6 +140,11 @@ module.exports = async function handler(req, res) {
 
   const data = { week, year, players, timestamp: Date.now(), elapsed: Date.now() - start };
   cache = { data, timestamp: Date.now(), week };
-  res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate=300');
+  // No CDN/edge caching: the in-memory cache above already serves repeat requests within
+  // its own TTL, resets cleanly on every real deploy, and is visible via `cached: true` in
+  // the response. An s-maxage header here would let Vercel's edge network keep answering
+  // from a stale cached response for up to 30+ minutes after a deploy, without ever
+  // reaching this (fixed) code — exactly the "I redeployed and it's still wrong" trap.
+  res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json(data);
 };

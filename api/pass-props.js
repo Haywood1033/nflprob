@@ -116,6 +116,8 @@ module.exports = async function handler(req, res) {
 
   const data = { week, year, players, timestamp: Date.now(), elapsed: Date.now() - start };
   cache = { data, timestamp: Date.now(), week };
-  res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate=300');
+  // No CDN/edge caching — see api/props.js for why (in-memory cache above already covers
+  // this, and unlike an edge cache it always resets on a real deploy).
+  res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json(data);
 };
