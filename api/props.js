@@ -3,7 +3,7 @@ const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.j
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computePlayerUsage, computeDefenseAllowedToPosition, anytimeTdProb, getTdSignals } = require('../lib/td-scoring.js');
-const { recencyWindow } = require('../lib/recency-window.js');
+const { recencyWindow, recentGames } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
 const { poolFromRoster } = require('../lib/roster-pool.js');
 
@@ -11,20 +11,28 @@ let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
 const TD_POSITIONS = ['RB', 'WR', 'TE'];
 
+// Recency-limited, same reasoning as poolFromRoster's fix (lib/roster-pool.js): rank by
+// who's actually getting touches lately, not by whoever accumulated the most earlier in the
+// season — otherwise a since-injured/benched player's early-season volume keeps him ranked
+// above the player who has actually taken over the role.
 function topUsagePlayersForTeamFallback(playerRows, teamEspnAbbr, throughWeek, perPosition = 4) {
   const team = toNflverseAbbr(teamEspnAbbr);
-  const weekFilter = throughWeek < 1 ? () => true : (r) => Number(r.week) <= throughWeek;
-  const teamRows = playerRows.filter(r => r.team === team && r.season_type === 'REG' && weekFilter(r) && TD_POSITIONS.includes(r.position));
+  const lastN = recencyWindow(throughWeek);
+  const teamRows = playerRows.filter(r => r.team === team && r.season_type === 'REG' && TD_POSITIONS.includes(r.position));
 
   const byName = {};
   for (const r of teamRows) {
-    const touches = (parseFloat(r.targets) || 0) + (parseFloat(r.carries) || 0);
-    if (!byName[r.player_display_name]) byName[r.player_display_name] = { name: r.player_display_name, position: r.position, histTeam: team, touches: 0 };
-    byName[r.player_display_name].touches += touches;
+    if (!byName[r.player_display_name]) byName[r.player_display_name] = { position: r.position, rows: [] };
+    byName[r.player_display_name].rows.push(r);
   }
 
   const byPos = { RB: [], WR: [], TE: [] };
-  Object.values(byName).forEach(p => { if (byPos[p.position]) byPos[p.position].push({ name: p.name, histTeam: p.histTeam, volume: p.touches }); });
+  Object.entries(byName).forEach(([name, p]) => {
+    if (!byPos[p.position]) return;
+    const recent = recentGames(p.rows, throughWeek, lastN);
+    const touches = recent.reduce((s, r) => s + (parseFloat(r.targets) || 0) + (parseFloat(r.carries) || 0), 0);
+    byPos[p.position].push({ name, histTeam: team, volume: touches });
+  });
 
   let pool = [];
   for (const pos of TD_POSITIONS) pool = pool.concat(byPos[pos].sort((a, b) => b.volume - a.volume).slice(0, perPosition));
@@ -33,16 +41,18 @@ function topUsagePlayersForTeamFallback(playerRows, teamEspnAbbr, throughWeek, p
 
 // TD-specific pool builder: ranks by combined touches (targets + carries), since
 // poolFromRoster only sums a single field and targets-alone would badly under-rank RBs.
-function tdPoolFromRoster(roster, playerRows, count = 8) {
+function tdPoolFromRoster(roster, playerRows, count = 8, throughWeek = -1) {
   // Same fix as lib/roster-pool.js — an empty-but-truthy roster object must fall back too.
   if (!roster || Object.keys(roster).length === 0) return null;
   const candidates = Object.values(roster).filter(entry => TD_POSITIONS.includes(entry.position) && !entry.definitelyOut);
 
   const { findHistoricalTeam } = require('../lib/roster-pool.js');
+  const lastN = recencyWindow(throughWeek);
   const withVolume = candidates.map(entry => {
     const histTeam = findHistoricalTeam(playerRows, entry.displayName);
     if (!histTeam) return null;
-    const rows = playerRows.filter(r => r.player_display_name === entry.displayName && r.team === histTeam && r.season_type === 'REG');
+    const candidateRows = playerRows.filter(r => r.player_display_name === entry.displayName && r.team === histTeam && r.season_type === 'REG');
+    const rows = recentGames(candidateRows, throughWeek, lastN);
     const touches = rows.reduce((s, r) => s + (parseFloat(r.targets) || 0) + (parseFloat(r.carries) || 0), 0);
     return { name: entry.displayName, position: entry.position, histTeam, volume: touches };
   }).filter(Boolean);
@@ -95,7 +105,7 @@ module.exports = async function handler(req, res) {
     for (const t of teamsInGame) {
       const roster = rosterCache[t.abbr];
 
-      const pool = tdPoolFromRoster(roster, playerRows, 8)
+      const pool = tdPoolFromRoster(roster, playerRows, 8, throughWeek)
         || topUsagePlayersForTeamFallback(playerRows, t.abbr, throughWeek);
 
       for (const candidate of pool) {
