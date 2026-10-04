@@ -7,7 +7,8 @@
     "api/rec-props.js":  { "maxDuration": 60 },
     "api/pass-props.js": { "maxDuration": 60 },
     "api/season.js":     { "maxDuration": 60 },
-    "api/history.js":    { "maxDuration": 30 }
+    "api/history.js":    { "maxDuration": 30 },
+    "api/lineup-optimizer.js": { "maxDuration": 60 }
   },
   "rewrites": [
     { "source": "/", "destination": "/app.html" },
