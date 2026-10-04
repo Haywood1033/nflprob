@@ -6,6 +6,7 @@
 <title>NFLProb</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230a0e1a'/%3E%3Cellipse cx='12' cy='12' rx='7' ry='5' fill='none' stroke='%232dd4bf' stroke-width='1.6'/%3E%3Cpath d='M6.5 12h11M9.5 9.7v4.6M12 9.2v5.6M14.5 9.7v4.6' stroke='%232dd4bf' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
 <style>
 :root{--bg:#0a0e1a;--bg2:#0e1422;--bg3:#141e2e;--bd:rgba(255,255,255,0.10);--bd2:rgba(255,255,255,0.16);--t1:rgba(255,255,255,0.92);--t2:rgba(255,255,255,0.45);--t3:rgba(255,255,255,0.25);--teal:#2dd4bf;--green:#4ade80;--amber:#f59e0b;--red:#f87171;--purple:#a78bfa;--blue:#60a5fa;--mono:'Space Mono',monospace;--sans:'DM Sans',system-ui,sans-serif;--r:8px}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -178,6 +179,26 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .best-value{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--teal);min-width:70px;text-align:right}
 .best-badge{font-family:var(--mono);font-size:9px;font-weight:700;min-width:90px;text-align:right;display:flex;align-items:center;justify-content:flex-end;gap:4px}
 
+/* DFS LINEUP OPTIMIZER */
+.dfs-upload-zone{border:1.5px dashed rgba(255,255,255,0.18);border-radius:12px;padding:48px 24px;text-align:center;transition:border-color .15s,background .15s}
+.dfs-upload-zone.dragover{border-color:var(--teal);background:rgba(45,212,191,.05)}
+.dfs-upload-btn{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border-radius:20px;background:rgba(45,212,191,.1);border:0.5px solid rgba(45,212,191,.3);color:var(--teal);font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;transition:background .15s}
+.dfs-upload-btn:hover{background:rgba(45,212,191,.18)}
+.dfs-ctrl{font-family:var(--mono);font-size:9px;font-weight:700;padding:4px 9px;border-radius:10px;border:0.5px solid rgba(255,255,255,0.14);color:var(--t3);cursor:pointer;white-space:nowrap;transition:all .15s}
+.dfs-ctrl:hover{border-color:rgba(255,255,255,0.3);color:var(--t1)}
+.dfs-ctrl.on{color:var(--teal);background:rgba(45,212,191,.12);border-color:rgba(45,212,191,.35)}
+.dfs-ctrl-cpt.on{color:var(--amber);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35)}
+.dfs-ctrl-x.on{color:var(--red);background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.35)}
+.dfs-row-excluded{opacity:.4}
+.dfs-row-excluded .td-name{text-decoration:line-through}
+.dfs-build-btn{padding:10px 24px;border-radius:20px;background:rgba(74,222,128,.12);border:0.5px solid rgba(74,222,128,.35);color:var(--green);font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;transition:background .15s}
+.dfs-build-btn:hover{background:rgba(74,222,128,.2)}
+.dfs-build-btn.disabled{opacity:.4;cursor:default;pointer-events:none}
+.dfs-link-btn{font-family:var(--mono);font-size:11px;color:var(--t3);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.dfs-link-btn:hover{color:var(--t1)}
+.dfs-cap-bar{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-top:6px}
+.dfs-cap-fill{height:100%;border-radius:3px;background:var(--teal);transition:width .3s}
+
 /* PARLAY BUILDER */
 .parlay-subtabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
 .parlay-subtab{padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;border-radius:20px;color:var(--t3);border:0.5px solid rgba(255,255,255,0.14);font-family:var(--mono)}
@@ -228,6 +249,7 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
     <div class="tab" data-tab="pass">Passing Yds</div>
     <div class="tab" data-tab="best">Best Plays</div>
     <div class="tab" data-tab="parlay">Parlay Builder</div>
+    <div class="tab" data-tab="dfs">Lineup Builder</div>
     <div class="tab" data-tab="season">Season Projections</div>
     <div class="tab" data-tab="accuracy">Accuracy</div>
   </div>
@@ -907,6 +929,243 @@ function attachManualParlayHandlers(legPool) {
   }));
 }
 
+// ═══════════════ DFS LINEUP BUILDER (DK Showdown: Captain + 5 FLEX) ═══════════════
+// Upload a DK salary CSV/XLSX, run nflprob's real per-player models (same pass/rush/rec/TD
+// functions every other tab uses) against every player in the file, let the user lock "must
+// play" players or force a specific Captain, then solve the true salary-cap-optimal lineup
+// server-side (exact knapsack, not a heuristic — see lib/dfs-optimizer.js). Single-game
+// Showdown only; a multi-game Classic slate has a different roster shape entirely.
+
+const dfsState = { players: [], awayAbbr: null, homeAbbr: null, year: null, locked: new Set(), captainLock: null, excluded: new Set(), lastResult: null };
+
+function dfsSplitCSVLine(line) {
+  const out = []; let cur = ''; let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) { if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQuotes = false; } else cur += c; }
+    else { if (c === '"') inQuotes = true; else if (c === ',') { out.push(cur); cur = ''; } else cur += c; }
+  }
+  out.push(cur);
+  return out;
+}
+function dfsParseCSV(text) {
+  const lines = text.replace(/^﻿/, '').trim().split(/\r?\n/);
+  const headers = dfsSplitCSVLine(lines[0]).map(h => h.trim());
+  return lines.slice(1).filter(l => l.trim()).map(line => {
+    const cells = dfsSplitCSVLine(line);
+    const row = {};
+    headers.forEach((h, i) => row[h] = (cells[i] || '').trim());
+    return row;
+  });
+}
+function dfsRowsFromAOA(aoa) {
+  const headers = (aoa[0] || []).map(h => String(h || '').trim());
+  return aoa.slice(1).filter(r => r.some(c => c !== '' && c != null)).map(r => {
+    const row = {};
+    headers.forEach((h, i) => row[h] = r[i] != null ? String(r[i]).trim() : '');
+    return row;
+  });
+}
+
+function dfsUploadHTML() {
+  return `<div class="dfs-upload-zone" id="dfsDropZone">
+    <h3 style="font-size:16px;margin-bottom:8px">Upload a DraftKings Showdown salary file</h3>
+    <div style="margin:0 auto 18px;color:var(--t3);font-size:12px;max-width:440px;line-height:1.6">
+      CSV or Excel export from a DK Showdown (Captain + FLEX, single-game) contest. We run
+      nflprob's own matchup-adjusted projections against every player in the file — then you
+      lock key players or force a Captain before building the salary-cap-optimal lineup.
+    </div>
+    <label class="dfs-upload-btn">${icon('bolt')} Choose File
+      <input type="file" id="dfsFileInput" accept=".csv,.xlsx,.xls" style="display:none">
+    </label>
+    <div id="dfsUploadStatus" style="margin-top:12px;font-size:11px;font-family:var(--mono);color:var(--t3)"></div>
+  </div>`;
+}
+
+function loadDfsOptimizer() {
+  setStatus(false);
+  if (dfsState.players.length) { renderDfsPlayerTable(); return; }
+  document.getElementById('content').innerHTML = dfsUploadHTML();
+  document.getElementById('dfsFileInput').addEventListener('change', dfsHandleFile);
+  const zone = document.getElementById('dfsDropZone');
+  ['dragover', 'dragleave', 'drop'].forEach(evt => zone.addEventListener(evt, e => {
+    e.preventDefault();
+    zone.classList.toggle('dragover', evt === 'dragover');
+    if (evt === 'drop' && e.dataTransfer.files[0]) dfsProcessFile(e.dataTransfer.files[0]);
+  }));
+}
+
+function dfsHandleFile(e) { if (e.target.files[0]) dfsProcessFile(e.target.files[0]); }
+
+function dfsProcessFile(file) {
+  const statusEl = document.getElementById('dfsUploadStatus');
+  statusEl.textContent = 'Parsing ' + file.name + '…';
+  const isExcel = /\.xlsx?$/i.test(file.name);
+  const reader = new FileReader();
+  reader.onerror = () => { statusEl.innerHTML = `<span style="color:var(--red)">Could not read file</span>`; };
+  reader.onload = (ev) => {
+    try {
+      let rows;
+      if (isExcel) {
+        if (typeof XLSX === 'undefined') throw new Error('Excel parser did not load — try a CSV export instead');
+        const wb = XLSX.read(ev.target.result, { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        rows = dfsRowsFromAOA(XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' }));
+      } else {
+        rows = dfsParseCSV(ev.target.result);
+      }
+      dfsIngestRows(rows);
+    } catch (err) {
+      statusEl.innerHTML = `<span style="color:var(--red)">Failed to parse file: ${err.message}</span>`;
+    }
+  };
+  if (isExcel) reader.readAsArrayBuffer(file); else reader.readAsText(file);
+}
+
+function dfsIngestRows(rows) {
+  const statusEl = document.getElementById('dfsUploadStatus');
+  const flexRows = rows.filter(r => (r['Roster Position'] || '').toUpperCase() === 'FLEX');
+  if (!flexRows.length) { statusEl.innerHTML = `<span style="color:var(--red)">No FLEX rows found — is this a DK Showdown salary file?</span>`; return; }
+  const gameInfo = rows[0]['Game Info'] || '';
+  const m = gameInfo.match(/^(\w+)@(\w+)\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!m) { statusEl.innerHTML = `<span style="color:var(--red)">Couldn't read the matchup from the Game Info column</span>`; return; }
+  dfsState.players = flexRows.map(r => ({
+    id: r.ID, position: r.Position, name: r.Name, salary: Number(r.Salary) || 0,
+    teamAbbrev: r.TeamAbbrev, avgPointsPerGame: Number(r.AvgPointsPerGame) || 0, status: r.Status || '',
+  }));
+  dfsState.awayAbbr = m[1]; dfsState.homeAbbr = m[2]; dfsState.year = m[5];
+  dfsState.locked = new Set(); dfsState.captainLock = null; dfsState.excluded = new Set(); dfsState.lastResult = null;
+  renderDfsPlayerTable();
+}
+
+function dfsResetUpload() {
+  dfsState.players = []; dfsState.lastResult = null;
+  loadDfsOptimizer();
+}
+
+function renderDfsPlayerTable() {
+  const byPos = { QB: 1, RB: 2, WR: 3, TE: 4, K: 5, DST: 6 };
+  const sorted = [...dfsState.players].sort((a, b) => (byPos[a.position] || 9) - (byPos[b.position] || 9) || b.salary - a.salary);
+  const rows = sorted.map(p => {
+    const locked = dfsState.locked.has(p.id);
+    const isCaptain = dfsState.captainLock === p.id;
+    const excluded = dfsState.excluded.has(p.id);
+    return `<tr class="${excluded ? 'dfs-row-excluded' : ''}">
+      <td class="td-pos">${p.position}</td>
+      <td class="td-name">${p.name}</td>
+      <td class="td-team">${p.teamAbbrev}</td>
+      <td class="td-prob num-col">$${p.salary.toLocaleString()}</td>
+      <td class="td-touch num-col">${p.avgPointsPerGame}</td>
+      <td>${p.status ? `<span style="color:var(--red);font-family:var(--mono);font-size:10px">${p.status}</span>` : ''}</td>
+      <td><div style="display:flex;gap:4px">
+        <span class="dfs-ctrl${locked ? ' on' : ''}" data-dfs-lock="${p.id}" title="Must be in the final lineup">LOCK</span>
+        <span class="dfs-ctrl dfs-ctrl-cpt${isCaptain ? ' on' : ''}" data-dfs-cpt="${p.id}" title="Force this player as Captain">CPT</span>
+        <span class="dfs-ctrl dfs-ctrl-x${excluded ? ' on' : ''}" data-dfs-exclude="${p.id}" title="Never include this player">OUT</span>
+      </div></td>
+    </tr>`;
+  }).join('');
+  const lockedCount = dfsState.locked.size + (dfsState.captainLock && !dfsState.locked.has(dfsState.captainLock) ? 1 : 0);
+  const overLocked = lockedCount > 6;
+  document.getElementById('content').innerHTML = `
+    <div class="filter-bar">
+      <div style="font-family:var(--mono);font-size:12px;color:var(--t1);font-weight:600">${dfsState.awayAbbr} @ ${dfsState.homeAbbr}</div>
+      <span class="filter-count">${dfsState.players.length} players loaded</span>
+      <span class="dfs-link-btn" id="dfsResetLink" style="margin-left:14px">upload a different file</span>
+    </div>
+    <div style="font-size:10px;font-family:var(--mono);color:var(--t3);margin-bottom:12px">LOCK = must be in the lineup &nbsp;·&nbsp; CPT = force as Captain (implies LOCK) &nbsp;·&nbsp; OUT = exclude entirely</div>
+    <div class="table-scroll"><table class="td-table"><thead><tr><th>Pos</th><th>Player</th><th>Team</th><th class="num-col">Salary</th><th class="num-col">Avg Pts</th><th>Status</th><th>Controls</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <div class="dfs-build-btn${overLocked ? ' disabled' : ''}" id="dfsBuildBtn">${icon('bolt')} Build Optimal Lineup</div>
+      <div id="dfsBuildStatus" style="font-family:var(--mono);font-size:11px;color:${overLocked ? 'var(--red)' : 'var(--t3)'}">${overLocked ? 'Too many locked players for a 6-man roster — unlock some first' : ''}</div>
+    </div>
+    <div id="dfsResults" style="margin-top:20px"></div>`;
+  document.getElementById('dfsResetLink').addEventListener('click', dfsResetUpload);
+  document.querySelectorAll('[data-dfs-lock]').forEach(el => el.addEventListener('click', () => {
+    const id = el.dataset.dfsLock;
+    if (dfsState.locked.has(id)) dfsState.locked.delete(id); else dfsState.locked.add(id);
+    renderDfsPlayerTable();
+  }));
+  document.querySelectorAll('[data-dfs-cpt]').forEach(el => el.addEventListener('click', () => {
+    const id = el.dataset.dfsCpt;
+    dfsState.captainLock = dfsState.captainLock === id ? null : id;
+    if (dfsState.excluded.has(id)) dfsState.excluded.delete(id);
+    renderDfsPlayerTable();
+  }));
+  document.querySelectorAll('[data-dfs-exclude]').forEach(el => el.addEventListener('click', () => {
+    const id = el.dataset.dfsExclude;
+    if (dfsState.excluded.has(id)) dfsState.excluded.delete(id);
+    else { dfsState.excluded.add(id); dfsState.locked.delete(id); if (dfsState.captainLock === id) dfsState.captainLock = null; }
+    renderDfsPlayerTable();
+  }));
+  if (!overLocked) document.getElementById('dfsBuildBtn').addEventListener('click', dfsBuildLineup);
+}
+
+async function dfsBuildLineup() {
+  const statusEl = document.getElementById('dfsBuildStatus');
+  statusEl.style.color = 'var(--t3)';
+  statusEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px"><span class="spinner" style="width:12px;height:12px;margin:0"></span> Optimizing against live matchup data…</span>`;
+  try {
+    const payload = {
+      players: dfsState.players, awayAbbr: dfsState.awayAbbr, homeAbbr: dfsState.homeAbbr, year: dfsState.year,
+      lockedIds: [...dfsState.locked], captainLockId: dfsState.captainLock, excludedIds: [...dfsState.excluded],
+    };
+    const res = await fetch('/api/lineup-optimizer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (data.error) { statusEl.style.color = 'var(--red)'; statusEl.textContent = data.error; return; }
+    statusEl.textContent = '';
+    dfsState.lastResult = data;
+    renderDfsResults(data);
+  } catch (e) {
+    statusEl.style.color = 'var(--red)'; statusEl.textContent = 'Request failed: ' + e.message;
+  }
+}
+
+function renderDfsResults(data) {
+  const { lineup, model, players, away, home, week } = data;
+  const legHTML = (p, isCaptain) => `<div class="parlay-leg" data-dfs-detail="${p.id}" style="cursor:pointer">
+    <div class="parlay-leg-num">${isCaptain ? icon('star', 'color:var(--amber)') : p.pos}</div>
+    <div class="parlay-leg-info"><div class="parlay-leg-name">${p.name}${isCaptain ? ' <span style="color:var(--amber);font-weight:700;font-size:10px">CPT</span>' : ''} <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.team})</span></div>
+      <div class="parlay-leg-detail">$${(isCaptain ? lineup.captainSalary : p.salary).toLocaleString()}${!p.modeled ? ' · recency estimate' : ''}</div></div>
+    <div class="parlay-leg-prob">${(isCaptain ? p.points * 1.5 : p.points).toFixed(1)}pts</div></div>`;
+  const lineupHTML = `<div class="parlay-card">
+    <div class="parlay-hdr"><div class="parlay-title">Optimal Lineup — ${away} @ ${home}, Week ${week}</div>
+      <div class="parlay-combined"><div class="parlay-combined-val">${lineup.totalPoints.toFixed(1)}</div><div class="parlay-combined-lbl">Proj. Points</div></div></div>
+    ${legHTML(lineup.captain, true)}
+    ${lineup.flex.map(p => legHTML(p, false)).join('')}
+    <div style="margin-top:10px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;font-family:var(--mono);color:var(--t3)"><span>Salary used</span><span>$${lineup.totalSalary.toLocaleString()} / $50,000</span></div>
+      <div class="dfs-cap-bar"><div class="dfs-cap-fill" style="width:${(lineup.totalSalary / 50000 * 100).toFixed(1)}%"></div></div>
+    </div>
+    <div class="parlay-disclaimer">Model projects ${away} ${model.awayImplied} – ${home} ${model.homeImplied} (total ${model.total}${model.shootoutSignal ? ', shootout range' : ''}). This maximizes expected points under your locks — it does not account for who else in your contest is rostering the same players.</div>
+  </div>`;
+
+  const allSorted = [...players].sort((a, b) => b.points - a.points);
+  const tableRows = allSorted.map(p => `<tr class="expand-row" data-dfs-detail="${p.id}">
+    <td class="td-pos">${p.pos}</td><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
+    <td class="td-team">${p.team}</td><td class="td-prob num-col">${p.points.toFixed(2)}</td>
+    <td class="td-touch num-col">$${p.salary.toLocaleString()}</td>
+    <td class="td-touch num-col">${(p.points / (p.salary / 1000)).toFixed(2)}</td>
+    <td>${p.modeled ? '<span style="color:var(--teal);font-size:9px;font-family:var(--mono)">MODEL</span>' : '<span style="color:var(--t3);font-size:9px;font-family:var(--mono)">EST</span>'}</td></tr>`).join('');
+
+  document.getElementById('dfsResults').innerHTML = lineupHTML +
+    `<div style="margin:18px 0 8px;font-size:11px;font-family:var(--mono);color:var(--t3)">ALL PLAYER PROJECTIONS (sorted by projected points, FLEX pricing)</div>
+    <div class="table-scroll"><table class="td-table"><thead><tr><th>Pos</th><th>Player</th><th>Team</th><th class="num-col">Proj Pts</th><th class="num-col">Salary</th><th class="num-col">Pts/$1k</th><th>Source</th></tr></thead>
+    <tbody>${tableRows}</tbody></table></div>`;
+
+  const byId = {}; players.forEach(p => byId[p.id] = p);
+  document.querySelectorAll('[data-dfs-detail]').forEach(el => el.addEventListener('click', () => {
+    const p = byId[el.dataset.dfsDetail]; if (!p) return;
+    const header = `<div class="dd-name">${p.name}</div><div class="dd-sub">${p.pos} · ${p.team} · $${p.salary.toLocaleString()}</div>`;
+    const body = `<div class="detail-grid"><div><div class="detail-block-hdr">Projection</div>
+      <div class="detail-sig-row"><span>Proj. Points (FLEX)</span><span style="color:var(--teal);font-family:var(--mono)">${p.points.toFixed(2)}</span></div>
+      <div class="detail-sig-row"><span>DK Avg Pts/Game (provided)</span><span style="font-family:var(--mono)">${p.avgPointsPerGame}</span></div>
+      <div class="detail-sig-row"><span>Source</span><span style="font-family:var(--mono);color:${p.modeled ? 'var(--teal)' : 'var(--t3)'}">${p.modeled ? 'nflprob model' : 'recency estimate'}</span></div>
+      ${p.note ? `<div class="detail-sig-desc" style="margin-top:6px">${p.note}</div>` : ''}</div></div>`;
+    openDrawer(header, body);
+  }));
+}
+
 let seasonCategory = 'wins';
 const seasonRawData = { wins:null, td:null, rush:null, rec:null, pass:null };
 async function loadSeasonCategory(category) {
@@ -954,6 +1213,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   else if (currentTab==='pass') loadPassProps();
   else if (currentTab==='best') loadBestPlays();
   else if (currentTab==='parlay') loadParlayBuilder();
+  else if (currentTab==='dfs') loadDfsOptimizer();
   else if (currentTab==='season') loadSeasonCategory(seasonCategory);
   else document.getElementById('content').innerHTML = '<div class="empty"><h3>Not built yet</h3></div>';
 }));
