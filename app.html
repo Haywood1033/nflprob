@@ -484,6 +484,51 @@ async function loadTeamModel() {
     renderTeamModel(teamRes, { td: tdRes.players||[], rush: rushRes.players||[], rec: recRes.players||[], pass: passRes.players||[] });
   } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
+// ACCURACY SNAPSHOT — captures this week's live projections (one row per team-model/TD/
+// rush/rec/pass prediction) BEFORE kickoff, so they can be graded against real results later
+// without any hindsight leaking in. Fires from the Slate tab specifically since that's the
+// one place all four prop types load together in one request. Guarded to the real current
+// week only (never a week the user is just browsing via ?week=) and at most once per page
+// load — the backend's own save is idempotent too (ON CONFLICT DO NOTHING), this just avoids
+// a redundant request on every Slate tab revisit.
+const _snapshotAttempted = new Set();
+function buildPredictionsSnapshot(teamData, props) {
+  const games = teamData.games || [];
+  const nameToAbbr = {};
+  games.forEach(g => { nameToAbbr[g.homeTeam] = g.homeAbbr; nameToAbbr[g.awayTeam] = g.awayAbbr; });
+  const abbrFor = (name) => nameToAbbr[name] || name;
+
+  const preds = [];
+  for (const g of games) {
+    const m = g.model || {};
+    if (m.homeWinProb != null) preds.push({ propType: 'game_winner', team: g.homeAbbr, opponent: g.awayAbbr, prediction: m.homeWinProb });
+    if (m.total != null) preds.push({ propType: 'total_points', team: g.homeAbbr, opponent: g.awayAbbr, prediction: m.total });
+  }
+  const addPlayerProps = (list, propType, valueKey) => {
+    (list || []).forEach(p => {
+      if (p[valueKey] == null) return;
+      const extra = propType === 'anytime_td' ? { tier: p.badge?.label || null, ci: p.ci?.tier || null } : { floor: p.floor, ceiling: p.ceiling };
+      preds.push({ name: p.name, propType, team: abbrFor(p.team), opponent: abbrFor(p.opponent), prediction: p[valueKey], ...extra });
+    });
+  };
+  addPlayerProps(props.td, 'anytime_td', 'prob');
+  addPlayerProps(props.rush, 'rush_yds', 'projected');
+  addPlayerProps(props.rec, 'rec_yds', 'projected');
+  addPlayerProps(props.pass, 'pass_yds', 'projected');
+  return preds;
+}
+async function maybeSnapshotWeek(teamData, props) {
+  if (!realCurrentWeek || Number(teamData.week) !== Number(realCurrentWeek)) return;
+  const key = teamData.year + '-W' + String(teamData.week).padStart(2, '0');
+  if (_snapshotAttempted.has(key)) return;
+  _snapshotAttempted.add(key);
+  try {
+    const predictions = buildPredictionsSnapshot(teamData, props);
+    if (!predictions.length) return;
+    await fetch('/api/history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', week: key, predictions, teamModel: teamData }) });
+  } catch (e) { /* best-effort — accuracy tracking should never block or break the UI */ }
+}
+
 function espnLogoUrl(abbr) { return abbr ? `https://a.espncdn.com/i/teamlogos/nfl/500/${abbr.toLowerCase()}.png` : ''; }
 function weatherLabel(w) {
   if (!w || !Object.keys(w).length) return ''; if (w.dome) return '🏟 Dome';
@@ -495,6 +540,7 @@ function renderTeamModel(d, props) {
   setStatus(d.cached);
   const games = d.games || [];
   if (!games.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No games found</h3></div>'; return; }
+  maybeSnapshotWeek(d, props);
   slateGames = games.map(g => {
     const m = g.model||{}; const gameTeams=[g.homeTeam,g.awayTeam];
     const homeTd = props.td.filter(p=>p.team===g.homeTeam).sort((a,b)=>b.prob-a.prob);
@@ -1166,6 +1212,114 @@ function renderDfsResults(data) {
   }));
 }
 
+// ═══════════════ ACCURACY TRACKING ═══════════════
+// Shows how well the model's own predictions have actually done — anytime-TD hit rate
+// (overall and broken down by badge/confidence tier, since those tiers are supposed to mean
+// something), yardage-prop error (MAE + bias, so systematic over/under-projection shows up),
+// and game-level win/total accuracy. Backed by api/history.js + lib/grading.js, which grade
+// saved weekly snapshots against real nflverse results once games are final.
+function fmtPct(v) { return v == null ? '—' : v + '%'; }
+function fmtNum(v) { return v == null ? '—' : v; }
+function accuracyKpi(label, val, color, sub) {
+  return `<div class="today-kpi"><div class="today-kpi-val" style="color:${color}">${val}</div><div class="today-kpi-lbl">${label}</div>${sub ? `<div style="font-size:9px;font-family:var(--mono);color:var(--t3);margin-top:2px">${sub}</div>` : ''}</div>`;
+}
+
+async function loadAccuracy() {
+  setStatus(false);
+  document.getElementById('content').innerHTML = loadingHTML('Loading accuracy history…');
+  try {
+    const data = await fetch('/api/history').then(r => r.json());
+    if (data.error) { document.getElementById('content').innerHTML = errorHTML(data.error); return; }
+    renderAccuracy(data);
+  } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
+}
+
+function renderAccuracyWeekList(records) {
+  if (!records.length) return '';
+  const rows = records.map(r => {
+    const statusHtml = r.resultsAdded
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;color:var(--green);font-family:var(--mono);font-size:10px">${icon('check')} GRADED</span>`
+      : `<span style="color:var(--amber);font-family:var(--mono);font-size:10px">SAVED — AWAITING RESULTS</span>`;
+    return `<tr><td class="td-name">${r.week}</td><td class="td-touch">${(r.predictions || []).length} predictions</td>
+      <td>${statusHtml}</td>
+      <td>${r.resultsAdded ? '' : `<span class="dfs-link-btn" data-grade-week="${r.week}">grade now</span>`}</td></tr>`;
+  }).join('');
+  return `<div style="margin:18px 0 8px;font-size:11px;font-family:var(--mono);color:var(--t3)">TRACKED WEEKS</div>
+    <div class="table-scroll"><table class="td-table"><thead><tr><th>Week</th><th>Predictions</th><th>Status</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+function renderAccuracy(data) {
+  const agg = data.aggregate;
+  const records = data.records || [];
+  const headerHTML = `<div class="filter-bar"><div style="font-family:var(--mono);font-size:12px;color:var(--t3)">Predictions snapshot automatically from the Slate tab before kickoff each week.</div>
+    <span class="dfs-link-btn" id="accSnapshotBtn" style="margin-left:auto">snapshot current week now</span></div>`;
+
+  if (!agg) {
+    document.getElementById('content').innerHTML = headerHTML +
+      `<div class="empty"><h3>No graded weeks yet</h3><div style="margin-top:8px;color:var(--t3);font-size:12px">Once a saved week's games are final, grade it below to start building accuracy history.</div></div>
+      ${renderAccuracyWeekList(records)}`;
+    attachAccuracyHandlers();
+    return;
+  }
+
+  const kpis = `<div class="today-kpis">
+    ${accuracyKpi('Anytime TD Hit Rate', fmtPct(agg.anytimeTd.hitRate), 'var(--teal)', agg.anytimeTd.n + ' graded')}
+    ${accuracyKpi('Game Winner Accuracy', fmtPct(agg.gameWinner.hitRate), 'var(--green)', agg.gameWinner.n + ' graded')}
+    ${accuracyKpi('Rush Yds MAE', fmtNum(agg.rushYds.mae), 'var(--amber)', agg.rushYds.n + ' graded · bias ' + fmtNum(agg.rushYds.bias))}
+    ${accuracyKpi('Rec Yds MAE', fmtNum(agg.recYds.mae), 'var(--amber)', agg.recYds.n + ' graded · bias ' + fmtNum(agg.recYds.bias))}
+    ${accuracyKpi('Pass Yds MAE', fmtNum(agg.passYds.mae), 'var(--amber)', agg.passYds.n + ' graded · bias ' + fmtNum(agg.passYds.bias))}
+    ${accuracyKpi('Total Points MAE', fmtNum(agg.totalPoints.mae), 'var(--purple)', agg.totalPoints.n + ' graded · bias ' + fmtNum(agg.totalPoints.bias))}
+  </div>`;
+
+  const badgeRows = ['Elite', 'All-Star', 'Value', 'none'].map(tier => {
+    const b = agg.anytimeTd.byBadge[tier];
+    return `<div class="game-lean-row"><div class="game-lean-teams">${tier === 'none' ? 'No Badge' : tier}</div>
+      <div class="game-lean-meta"><span>${b.n} graded</span><span style="color:var(--teal)">${fmtPct(b.hitRate)} hit rate</span></div></div>`;
+  }).join('');
+  const confRows = ['high', 'mid', 'low'].map(tier => {
+    const b = agg.anytimeTd.byConfidence[tier];
+    return `<div class="game-lean-row"><div class="game-lean-teams">${tier.toUpperCase()}</div>
+      <div class="game-lean-meta"><span>${b.n} graded</span><span style="color:var(--teal)">${fmtPct(b.hitRate)} hit rate</span></div></div>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = headerHTML + kpis +
+    `<div class="today-two-col">
+      <div class="today-section"><div class="today-section-hdr"><span>Anytime TD — Hit Rate by Badge Tier</span></div><div class="today-section-body">${badgeRows}</div></div>
+      <div class="today-section"><div class="today-section-hdr"><span>Anytime TD — Hit Rate by Confidence Tier</span></div><div class="today-section-body">${confRows}</div></div>
+    </div>
+    <div class="empty" style="padding:10px 4px;text-align:left;font-size:11px">Bias is (projected − actual): positive means the model is over-projecting on average, negative under-projecting. MAE is mean absolute error in yards. A yardage prop "hits" when the actual result fell within the projected floor–ceiling range; game winner/total points use the model's own implied-points output.</div>
+    ${renderAccuracyWeekList(records)}`;
+  attachAccuracyHandlers();
+}
+
+function attachAccuracyHandlers() {
+  document.querySelectorAll('[data-grade-week]').forEach(el => el.addEventListener('click', async () => {
+    const weekKey = el.dataset.gradeWeek;
+    el.textContent = 'grading…';
+    try {
+      const res = await fetch('/api/history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'results', week: weekKey }) });
+      const data = await res.json();
+      if (data.notReady) { el.textContent = 'not final yet — try later'; return; }
+      if (data.error) { el.textContent = 'error: ' + data.error; return; }
+      loadAccuracy();
+    } catch (e) { el.textContent = 'request failed'; }
+  }));
+  const snapBtn = document.getElementById('accSnapshotBtn');
+  if (snapBtn) snapBtn.addEventListener('click', async () => {
+    snapBtn.textContent = 'snapshotting…';
+    try {
+      const [teamRes, tdRes, rushRes, recRes, passRes] = await Promise.all([
+        cachedJSON('/api/team-model?week=' + week), cachedJSON('/api/props?week=' + week),
+        cachedJSON('/api/rush-props?week=' + week), cachedJSON('/api/rec-props?week=' + week),
+        cachedJSON('/api/pass-props?week=' + week),
+      ]);
+      await maybeSnapshotWeek(teamRes, { td: tdRes.players || [], rush: rushRes.players || [], rec: recRes.players || [], pass: passRes.players || [] });
+      snapBtn.textContent = 'done (saved, or already was)';
+    } catch (e) { snapBtn.textContent = 'failed: ' + e.message; }
+  });
+}
+
 let seasonCategory = 'wins';
 const seasonRawData = { wins:null, td:null, rush:null, rec:null, pass:null };
 async function loadSeasonCategory(category) {
@@ -1215,18 +1369,24 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   else if (currentTab==='parlay') loadParlayBuilder();
   else if (currentTab==='dfs') loadDfsOptimizer();
   else if (currentTab==='season') loadSeasonCategory(seasonCategory);
+  else if (currentTab==='accuracy') loadAccuracy();
   else document.getElementById('content').innerHTML = '<div class="empty"><h3>Not built yet</h3></div>';
 }));
+// Ground truth for "is the week being viewed actually the upcoming/current one" — needed so
+// accuracy snapshots (see buildPredictionsSnapshot below) never fire for a week the user is
+// just browsing historically via ?week=, which would "predict" an already-decided game and
+// silently corrupt the accuracy tracking with hindsight.
+let realCurrentWeek = null;
+
 async function initApp() {
+  try {
+    const current = await cachedJSON('/api/current-week');
+    realCurrentWeek = current.week || null;
+  } catch (e) { /* leave null — snapshot guard just stays closed */ }
   if (!week) {
     // No ?week= given explicitly — ask ESPN what the current real week actually is, instead
     // of silently defaulting to 1 forever. Falls back to 1 only if this itself fails.
-    try {
-      const current = await cachedJSON('/api/current-week');
-      week = current.week || 1;
-    } catch (e) {
-      week = 1;
-    }
+    week = realCurrentWeek || 1;
   }
   document.getElementById('weekLabel').textContent = 'Week ' + week;
   loadThisWeek();
