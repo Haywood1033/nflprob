@@ -1297,12 +1297,29 @@ function renderAccuracy(data) {
       <div class="game-lean-meta"><span>${b.n} graded</span><span style="color:var(--teal)">${fmtPct(b.hitRate)} hit rate</span></div></div>`;
   }).join('');
 
+  const mlLeanLabels = { strong: 'Strong Lean (65%+)', lean: 'Lean (57-65%)', tossup: 'Toss-up (<57%)' };
+  const mlLeanRows = ['strong', 'lean', 'tossup'].map(tier => {
+    const b = agg.gameWinner.byLean[tier];
+    return `<div class="game-lean-row"><div class="game-lean-teams">${mlLeanLabels[tier]}</div>
+      <div class="game-lean-meta"><span>${b.n} graded</span><span style="color:var(--green)">${fmtPct(b.hitRate)} hit rate</span></div></div>`;
+  }).join('');
+  const totalsLeanLabels = { shootout: 'Shootout (48+ proj.)', lowScoring: 'Low Scoring (≤40 proj.)', neutral: 'Neutral' };
+  const totalsLeanRows = ['shootout', 'lowScoring', 'neutral'].map(tier => {
+    const b = agg.totalPoints.byLean[tier];
+    return `<div class="game-lean-row"><div class="game-lean-teams">${totalsLeanLabels[tier]}</div>
+      <div class="game-lean-meta"><span>${b.n} graded</span><span style="color:var(--purple)">MAE ${fmtNum(b.mae)}</span><span>bias ${fmtNum(b.bias)}</span></div></div>`;
+  }).join('');
+
   document.getElementById('content').innerHTML = headerHTML + kpis +
     `<div class="today-two-col">
       <div class="today-section"><div class="today-section-hdr"><span>Anytime TD — Hit Rate by Badge Tier</span></div><div class="today-section-body">${badgeRows}</div></div>
       <div class="today-section"><div class="today-section-hdr"><span>Anytime TD — Hit Rate by Confidence Tier</span></div><div class="today-section-body">${confRows}</div></div>
     </div>
-    <div class="empty" style="padding:10px 4px;text-align:left;font-size:11px">Bias is (projected − actual): positive means the model is over-projecting on average, negative under-projecting. MAE is mean absolute error in yards. A yardage prop "hits" when the actual result fell within the projected floor–ceiling range; game winner/total points use the model's own implied-points output.</div>
+    <div class="today-two-col">
+      <div class="today-section"><div class="today-section-hdr"><span>Moneyline Lean — Hit Rate by Lean Strength</span></div><div class="today-section-body">${mlLeanRows}</div></div>
+      <div class="today-section"><div class="today-section-hdr"><span>Totals Lean — Error by Signal</span></div><div class="today-section-body">${totalsLeanRows}</div></div>
+    </div>
+    <div class="empty" style="padding:10px 4px;text-align:left;font-size:11px">Bias is (projected − actual): positive means the model is over-projecting on average, negative under-projecting. MAE is mean absolute error in yards/points. A yardage prop "hits" when the actual result fell within the projected floor–ceiling range; game winner uses the model's own implied win probability, bucketed by how far that probability sits from a coin flip. Totals lean buckets split by the same shootout/low-scoring thresholds shown on the Slate tab's Game Leans section.</div>
     ${renderAccuracyWeekList(records)}`;
   attachAccuracyHandlers();
 }
