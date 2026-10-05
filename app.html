@@ -421,14 +421,17 @@ function signalChipsHTML(signals) {
 async function loadThisWeek() {
   document.getElementById('content').innerHTML = loadingHTML("Loading this week's slate…");
   try {
-    const [teamRes, propsRes] = await Promise.all([
+    const [teamRes, propsRes, rushRes, recRes, passRes] = await Promise.all([
       cachedJSON('/api/team-model?week=' + week),
       cachedJSON('/api/props?week=' + week),
+      cachedJSON('/api/rush-props?week=' + week),
+      cachedJSON('/api/rec-props?week=' + week),
+      cachedJSON('/api/pass-props?week=' + week),
     ]);
-    renderThisWeek(teamRes, propsRes);
+    renderThisWeek(teamRes, propsRes, { td: propsRes.players||[], rush: rushRes.players||[], rec: recRes.players||[], pass: passRes.players||[] });
   } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
-function renderThisWeek(teamData, propsData) {
+function renderThisWeek(teamData, propsData, allProps) {
   setStatus(teamData.cached||propsData.cached);
   const games = teamData.games || []; const players = propsData.players || [];
   if (!games.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No games found</h3></div>'; return; }
@@ -450,13 +453,22 @@ function renderThisWeek(teamData, propsData) {
     <div class="today-kpi"><div class="today-kpi-val" style="color:var(--amber)">${shootoutCount}</div><div class="today-kpi-lbl">Shootouts</div></div>
     <div class="today-kpi"><div class="today-kpi-val" style="color:var(--purple)">${signalPlays.length}</div><div class="today-kpi-lbl">Signal Plays</div></div>
     <div class="today-kpi"><div class="today-kpi-val" style="color:var(--green)">${eliteCount}</div><div class="today-kpi-lbl">Elite Plays</div></div></div>`;
-  const scorePlayer = p => p.prob*3 + p.signalCount*5;
-  const best = players.length ? [...players].sort((a,b)=>scorePlayer(b)-scorePlayer(a))[0] : null;
-  const bestHTML = best ? `<div class="best-play-card"><div class="best-play-hdr"><span style="display:inline-flex;align-items:center;gap:5px;color:var(--amber)">${icon('bolt')} Best Play This Week</span></div>
+  // Sharps Play — the same All-Star/Elite bar as the Best Plays tab (tierWeight>=2), but
+  // cross-type (TD/Rush/Rec/Pass) and surfaced right on the landing tab so "what should I
+  // actually bet" doesn't require a separate click into Best Plays. Deliberately NOT a
+  // probability*signalCount score over TD-only data (the old "Best Play This Week" card) —
+  // that picked from every player regardless of badge, which is exactly the overload this was
+  // meant to fix.
+  const sharpsPool = allProps ? buildUnifiedBestPlays(allProps).slice(0,3) : [];
+  const sharpsCardHTML = p => `<div class="best-play-card" data-sharps-key="${rowKey(p)+'|'+p.propType}">
+    <div class="best-play-hdr"><span style="display:inline-flex;align-items:center;gap:5px;color:${p.badge.color}">${badgeIcon(p.badge.label)} ${p.typeLabel} · ${badgeText(p.badge.label)}</span></div>
     <div style="display:flex;justify-content:space-between;align-items:flex-start"><div>
-      <div class="best-play-name">${best.name}</div><div class="best-play-sub">${best.position} · ${best.team} vs ${best.opponent}</div>
-      ${best.badge?`<span class="best-play-badge" style="color:${best.badge.color};border:1px solid ${best.badge.color}66">${badgeIcon(best.badge.label)}${badgeText(best.badge.label)}</span>`:''}</div>
-      <div style="text-align:right"><div class="best-play-prob">${best.prob}%</div><div class="gs-meta">Anytime TD</div></div></div></div>` : '';
+      <div class="best-play-name">${p.name}${p.position?` <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.position})</span>`:''}</div>
+      <div class="best-play-sub">${p.team} vs ${p.opponent}</div></div>
+      <div style="text-align:right"><div class="best-play-prob">${p.displayValue}</div><div class="gs-meta">${p.typeLabel}</div></div></div></div>`;
+  const sharpsHTML = `<div class="today-section-hdr" style="margin-bottom:10px"><span style="display:inline-flex;align-items:center;gap:5px;color:var(--amber)">${icon('bolt')} Sharps Play</span></div>` +
+    (sharpsPool.length ? sharpsPool.map(sharpsCardHTML).join('')
+      : `<div class="empty" style="padding:16px 4px;margin-bottom:16px;text-align:left"><h3 style="font-size:14px">No Sharps Play this week</h3><div style="margin-top:6px;color:var(--t3);font-size:12px">Nothing has cleared the All-Star/Elite bar yet — check back closer to kickoff as signals firm up.</div></div>`);
   const top5 = [...players].sort((a,b)=>b.prob-a.prob).slice(0,5);
   const top5HTML = top5.map((p,i)=>`<div class="today-target"><div class="today-target-rank">${i+1}</div>
     <div style="flex:1"><div class="today-target-name">${p.name}</div><div class="today-target-sub">${p.team} vs ${p.opponent}</div></div>
@@ -464,9 +476,18 @@ function renderThisWeek(teamData, propsData) {
   const topSignals = [...signalPlays].sort((a,b)=>b.signalCount!==a.signalCount?b.signalCount-a.signalCount:b.prob-a.prob).slice(0,5);
   const signalHTML = topSignals.map(p=>`<div class="today-target"><div style="flex:1"><div class="today-target-name">${p.name}</div><div class="today-target-sub">${p.team} vs ${p.opponent}</div></div>
     <div style="text-align:right"><div class="today-target-prob" style="color:var(--teal)">${p.prob}%</div>${p.badge?`<div style="font-size:8px;font-family:var(--mono);font-weight:700;color:${p.badge.color};margin-top:2px;display:flex;align-items:center;justify-content:flex-end;gap:4px">${badgeIcon(p.badge.label)}${badgeText(p.badge.label)}</div>`:''}</div></div>`).join('') || '<div class="gs-meta" style="padding:8px 0">No signal plays</div>';
-  document.getElementById('content').innerHTML = stripHTML + kpiHTML + bestHTML +
+  document.getElementById('content').innerHTML = stripHTML + kpiHTML + sharpsHTML +
     `<div class="today-two-col"><div class="today-section"><div class="today-section-hdr"><span>Top TD Targets</span></div><div class="today-section-body">${top5HTML}</div></div>
     <div class="today-section"><div class="today-section-hdr"><span>Top Signal Plays</span></div><div class="today-section-body">${signalHTML}</div></div></div>`;
+  document.querySelectorAll('[data-sharps-key]').forEach(card => card.addEventListener('click', () => {
+    const p = sharpsPool.find(sp => (rowKey(sp)+'|'+sp.propType) === card.dataset.sharpsKey);
+    if (!p) return;
+    const header = `<div class="dd-name">${p.name}${p.position?` <span style="color:var(--t3);font-weight:400;font-size:13px">(${p.position})</span>`:''}</div><div class="dd-sub">${p.team} vs ${p.opponent}</div>`;
+    const body = `<div class="detail-grid"><div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
+      <div><div class="detail-block-hdr">Key Stats</div>${p.detailStats.map(([l,v])=>`<div class="detail-sig-row"><span>${l}</span><span style="color:var(--teal);font-family:var(--mono)">${v}</span></div>`).join('')}
+      <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div></div></div>`;
+    openDrawer(header, body);
+  }));
 }
 async function loadTeamModel() {
   document.getElementById('content').innerHTML = loadingHTML('Loading slate…');
