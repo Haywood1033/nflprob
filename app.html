@@ -269,6 +269,7 @@ const ICONS = {
   check:   '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
   cross:   '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
   chevron: '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+  target:  '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>',
 };
 function icon(name, style) { return `<span class="icon"${style?` style="${style}"`:''}>${ICONS[name]||''}</span>`; }
 // Server-computed badges still return an emoji-prefixed label (e.g. "🏆 Elite Play") — these
@@ -453,22 +454,49 @@ function renderThisWeek(teamData, propsData, allProps) {
     <div class="today-kpi"><div class="today-kpi-val" style="color:var(--amber)">${shootoutCount}</div><div class="today-kpi-lbl">Shootouts</div></div>
     <div class="today-kpi"><div class="today-kpi-val" style="color:var(--purple)">${signalPlays.length}</div><div class="today-kpi-lbl">Signal Plays</div></div>
     <div class="today-kpi"><div class="today-kpi-val" style="color:var(--green)">${eliteCount}</div><div class="today-kpi-lbl">Elite Plays</div></div></div>`;
-  // Sharps Play — the same All-Star/Elite bar as the Best Plays tab (tierWeight>=2), but
-  // cross-type (TD/Rush/Rec/Pass) and surfaced right on the landing tab so "what should I
-  // actually bet" doesn't require a separate click into Best Plays. Deliberately NOT a
-  // probability*signalCount score over TD-only data (the old "Best Play This Week" card) —
-  // that picked from every player regardless of badge, which is exactly the overload this was
-  // meant to fix.
-  const sharpsPool = allProps ? buildUnifiedBestPlays(allProps).slice(0,3) : [];
-  const sharpsCardHTML = p => `<div class="best-play-card" data-sharps-key="${rowKey(p)+'|'+p.propType}">
+  // Best Play This Week — the single highest composite pick across ALL prop types, same sort
+  // as Best Plays (tier, then signal count, then relative value) but NOT gated by badge tier:
+  // on a week with no Elite/All-Star play at all, this still surfaces the best available thing,
+  // same as it always did before the badge-tightening work (just cross-type now instead of
+  // TD-only).
+  const bestOverall = allProps ? [...buildAllPlaysPool(allProps)].sort(sortPlays)[0] : null;
+  const bestOverallHTML = bestOverall ? `<div class="best-play-card" data-best-overall-key="${rowKey(bestOverall)+'|'+bestOverall.propType}">
+    <div class="best-play-hdr"><span style="display:inline-flex;align-items:center;gap:5px;color:var(--amber)">${icon('bolt')} Best Play This Week</span><span>COMPOSITE SIGNAL + VALUE SCORE</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start"><div>
+      <div class="best-play-name">${bestOverall.name}${bestOverall.position?` <span style="color:var(--t3);font-weight:400;font-size:11px">(${bestOverall.position})</span>`:''}</div>
+      <div class="best-play-sub">${bestOverall.team} vs ${bestOverall.opponent} · ${bestOverall.typeLabel}</div>
+      ${bestOverall.badge?`<span class="best-play-badge" style="color:${bestOverall.badge.color};border:1px solid ${bestOverall.badge.color}66">${badgeIcon(bestOverall.badge.label)}${badgeText(bestOverall.badge.label)}</span>`:''}</div>
+      <div style="text-align:right"><div class="best-play-prob">${bestOverall.displayValue}</div><div class="gs-meta">${bestOverall.typeLabel}</div></div></div></div>` : '';
+
+  // Sharp Plays — a narrower, specifically-named bar: three signal categories (workload,
+  // matchup, recent form) converging on one player AND an absolute floor on the real number,
+  // not just "cleared enough signals." See isSharpPlay() — most weeks this will legitimately be
+  // empty, which is the point (it's a "wait for a better setup" signal, not a guaranteed list).
+  const sharpPool = allProps ? buildAllPlaysPool(allProps).filter(isSharpPlay).sort(sortPlays) : [];
+  const sharpCriteria = 'TRIPLE CONVERGENCE · ALL-STAR+ · FAVORABLE MATCHUP REQUIRED';
+  const slateReadText = (() => {
+    if (!allProps) return '';
+    const totalElite = buildAllPlaysPool(allProps).filter(p => tierWeight(p.badge) === 3).length;
+    const lowScoringCt = games.filter(g => g.model?.lowScoringSignal).length;
+    const parts = [`${games.length}-game slate this week.`];
+    if (shootoutCount) parts.push(`${shootoutCount} shootout signal${shootoutCount===1?'':'s'} spotted.`);
+    if (lowScoringCt) parts.push(`${lowScoringCt} low-scoring signal${lowScoringCt===1?'':'s'}.`);
+    parts.push(totalElite ? `${totalElite} Elite-tier play${totalElite===1?'':'s'} on the board.` : 'No Elite-tier plays yet.');
+    parts.push(sharpPool.length ? `${sharpPool.length} play${sharpPool.length===1?'':'s'} clear the sharp threshold — these are the convergences worth trusting.` : 'No plays meet the sharp threshold this week — consider waiting for a better setup.');
+    return parts.join(' ');
+  })();
+  const sharpCardHTML = p => `<div class="best-play-card" data-sharp-key="${rowKey(p)+'|'+p.propType}">
     <div class="best-play-hdr"><span style="display:inline-flex;align-items:center;gap:5px;color:${p.badge.color}">${badgeIcon(p.badge.label)} ${p.typeLabel} · ${badgeText(p.badge.label)}</span></div>
     <div style="display:flex;justify-content:space-between;align-items:flex-start"><div>
       <div class="best-play-name">${p.name}${p.position?` <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.position})</span>`:''}</div>
       <div class="best-play-sub">${p.team} vs ${p.opponent}</div></div>
       <div style="text-align:right"><div class="best-play-prob">${p.displayValue}</div><div class="gs-meta">${p.typeLabel}</div></div></div></div>`;
-  const sharpsHTML = `<div class="today-section-hdr" style="margin-bottom:10px"><span style="display:inline-flex;align-items:center;gap:5px;color:var(--amber)">${icon('bolt')} Sharps Play</span></div>` +
-    (sharpsPool.length ? sharpsPool.map(sharpsCardHTML).join('')
-      : `<div class="empty" style="padding:16px 4px;margin-bottom:16px;text-align:left"><h3 style="font-size:14px">No Sharps Play this week</h3><div style="margin-top:6px;color:var(--t3);font-size:12px">Nothing has cleared the All-Star/Elite bar yet — check back closer to kickoff as signals firm up.</div></div>`);
+  const sharpPlaysHTML = `
+    <div class="today-section-hdr" style="margin-bottom:10px"><span style="display:inline-flex;align-items:center;gap:6px;color:var(--t1);font-size:14px;font-weight:700">${icon('target')} Sharp Plays</span><span>${sharpCriteria}</span></div>
+    <div class="today-section" style="margin-bottom:14px"><div class="today-section-hdr"><span>THIS WEEK'S SLATE READ</span></div><div class="today-section-body" style="font-size:13px;line-height:1.5;color:var(--t1)">${slateReadText}</div></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><span style="font-weight:700;font-size:13px">The plays</span><span style="font-family:var(--mono);font-size:10px;color:var(--t3)">${sharpPool.length} target${sharpPool.length===1?'':'s'} where everything aligns</span></div>
+    ${sharpPool.length ? sharpPool.map(sharpCardHTML).join('')
+      : `<div class="empty" style="padding:24px 4px;margin-bottom:16px"><h3 style="font-size:14px">No plays meet the sharp threshold this week</h3><div style="margin-top:6px;color:var(--t3);font-size:11px;font-family:var(--mono)">${sharpCriteria}</div></div>`}`;
   const top5 = [...players].sort((a,b)=>b.prob-a.prob).slice(0,5);
   const top5HTML = top5.map((p,i)=>`<div class="today-target"><div class="today-target-rank">${i+1}</div>
     <div style="flex:1"><div class="today-target-name">${p.name}</div><div class="today-target-sub">${p.team} vs ${p.opponent}</div></div>
@@ -476,17 +504,20 @@ function renderThisWeek(teamData, propsData, allProps) {
   const topSignals = [...signalPlays].sort((a,b)=>b.signalCount!==a.signalCount?b.signalCount-a.signalCount:b.prob-a.prob).slice(0,5);
   const signalHTML = topSignals.map(p=>`<div class="today-target"><div style="flex:1"><div class="today-target-name">${p.name}</div><div class="today-target-sub">${p.team} vs ${p.opponent}</div></div>
     <div style="text-align:right"><div class="today-target-prob" style="color:var(--teal)">${p.prob}%</div>${p.badge?`<div style="font-size:8px;font-family:var(--mono);font-weight:700;color:${p.badge.color};margin-top:2px;display:flex;align-items:center;justify-content:flex-end;gap:4px">${badgeIcon(p.badge.label)}${badgeText(p.badge.label)}</div>`:''}</div></div>`).join('') || '<div class="gs-meta" style="padding:8px 0">No signal plays</div>';
-  document.getElementById('content').innerHTML = stripHTML + kpiHTML + sharpsHTML +
+  document.getElementById('content').innerHTML = stripHTML + kpiHTML + bestOverallHTML + sharpPlaysHTML +
     `<div class="today-two-col"><div class="today-section"><div class="today-section-hdr"><span>Top TD Targets</span></div><div class="today-section-body">${top5HTML}</div></div>
     <div class="today-section"><div class="today-section-hdr"><span>Top Signal Plays</span></div><div class="today-section-body">${signalHTML}</div></div></div>`;
-  document.querySelectorAll('[data-sharps-key]').forEach(card => card.addEventListener('click', () => {
-    const p = sharpsPool.find(sp => (rowKey(sp)+'|'+sp.propType) === card.dataset.sharpsKey);
-    if (!p) return;
+  const openPlayDrawer = p => {
     const header = `<div class="dd-name">${p.name}${p.position?` <span style="color:var(--t3);font-weight:400;font-size:13px">(${p.position})</span>`:''}</div><div class="dd-sub">${p.team} vs ${p.opponent}</div>`;
     const body = `<div class="detail-grid"><div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
       <div><div class="detail-block-hdr">Key Stats</div>${p.detailStats.map(([l,v])=>`<div class="detail-sig-row"><span>${l}</span><span style="color:var(--teal);font-family:var(--mono)">${v}</span></div>`).join('')}
       <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div></div></div>`;
     openDrawer(header, body);
+  };
+  document.querySelectorAll('[data-best-overall-key]').forEach(card => card.addEventListener('click', () => { if (bestOverall) openPlayDrawer(bestOverall); }));
+  document.querySelectorAll('[data-sharp-key]').forEach(card => card.addEventListener('click', () => {
+    const p = sharpPool.find(sp => (rowKey(sp)+'|'+sp.propType) === card.dataset.sharpKey);
+    if (p) openPlayDrawer(p);
   }));
 }
 async function loadTeamModel() {
@@ -780,27 +811,49 @@ async function loadBestPlays() {
   } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
 function tierWeight(badge) { if (!badge) return 0; if (badge.label.includes('Elite')) return 3; if (badge.label.includes('All-Star')) return 2; if (badge.label.includes('Value')) return 1; return 0; }
-function buildUnifiedBestPlays(raw) {
+function sortPlays(a,b) { const tw=tierWeight(b.badge)-tierWeight(a.badge); if (tw!==0) return tw; const sc=b.signalCount-a.signalCount; if (sc!==0) return sc; return b.normalizedValue-a.normalizedValue; }
+// rawValue carries the type's real-world number (TD probability as a percent, yards for the
+// rest) — kept separate from normalizedValue (which is only comparable *within* this unified
+// pool) because Sharp Play eligibility checks an absolute, type-specific floor, not a relative one.
+function buildAllPlaysPool(raw) {
   const td = raw.td.map(p => ({ name:p.name, propType:'TD', typeLabel:'TD', position:p.position, team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:p.prob+'%', normalizedValue:(p.prob/65)*100, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
+    displayValue:p.prob+'%', normalizedValue:(p.prob/65)*100, rawValue:p.prob, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
     detailStats:[['Anytime TD Probability', p.prob+'%'],['Touches (L5)', p.touches]] }));
   const rush = raw.rush.map(p => ({ name:p.name, propType:'RUSH', typeLabel:'RUSH', position:'RB', team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/200)*100), signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
+    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/200)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
     detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Carries (L5)', p.carries]] }));
   const rec = raw.rec.map(p => ({ name:p.name, propType:'REC', typeLabel:'REC', position:p.position, team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/150)*100), signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
+    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/150)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
     detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Targets (L5)', p.targets]] }));
   const pass = raw.pass.map(p => ({ name:p.name, propType:'PASS', typeLabel:'PASS', position:'QB', team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/350)*100), signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
+    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/350)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
     detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Attempts (L5)', p.attempts]] }));
-  const all = [...td, ...rush, ...rec, ...pass];
+  return [...td, ...rush, ...rec, ...pass];
+}
+function buildUnifiedBestPlays(raw) {
   // Best Plays is specifically "what should I bet," not "everything that cleared any bar" — a
   // Value Play badge is still shown on each prop's own tab, but only All-Star/Elite convictions
   // (tierWeight >= 2) make the cut here. Was showing every badged play regardless of tier,
   // which buried the few genuinely strong plays in a long tail of borderline ones.
-  const notable = all.filter(p => p.badge && tierWeight(p.badge) >= 2);
-  notable.sort((a,b) => { const tw=tierWeight(b.badge)-tierWeight(a.badge); if (tw!==0) return tw; const sc=b.signalCount-a.signalCount; if (sc!==0) return sc; return b.normalizedValue-a.normalizedValue; });
+  const notable = buildAllPlaysPool(raw).filter(p => p.badge && tierWeight(p.badge) >= 2);
+  notable.sort(sortPlays);
   return notable;
+}
+// Sharp Play — a narrower, named bar than any single badge tier: three specific signal
+// categories (workload, matchup, recent form) converging on the same player AND an absolute,
+// type-specific floor on the real number (not just a relative signal count). A play can be
+// Elite-tier (every signal active) without being a Sharp Play if, say, its matchup signal isn't
+// one of the ones that's active — Sharp Play requires that one specifically, not just "enough."
+const SHARP_FORM_SIGNAL = { TD: 'streak', RUSH: 'hot', REC: 'hot', PASS: 'hot' };
+const SHARP_FLOOR = { TD: 20, RUSH: 70, REC: 60, PASS: 220 };
+function isSharpPlay(p) {
+  if (!p.badge || tierWeight(p.badge) < 2) return false;
+  const active = {}; (p.signals||[]).forEach(s => { active[s.key] = s.active; });
+  const hasMatchup = !!active.matchup;
+  const hasForm = !!active[SHARP_FORM_SIGNAL[p.propType]];
+  const hasUsage = !!(active.usage || active.volume);
+  const floor = SHARP_FLOOR[p.propType] || 0;
+  return hasMatchup && hasForm && hasUsage && (p.rawValue||0) >= floor;
 }
 function renderBestPlays() {
   if (!bestPlaysRaw) return; setStatus(false);
