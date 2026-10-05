@@ -125,7 +125,9 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .game-lean-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--bg3);font-size:12px}
 .game-lean-teams{font-weight:600;color:var(--t1)}
 .game-lean-meta{display:flex;gap:14px;align-items:center;font-size:11px;color:var(--t3)}
-.slate-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.slate-group-hdr{font-size:12px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.04em;margin:20px 0 10px}
+.slate-group-hdr:first-child{margin-top:0}
+.slate-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:6px}
 .slate-card{background:var(--bg2);border:0.5px solid var(--bd);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s,transform .15s}
 .slate-card:hover{border-color:var(--bd2);transform:translateY(-1px)}
 .slate-card.shootout{border-color:rgba(240,169,61,.28)}
@@ -604,6 +606,28 @@ function weatherLabel(w) {
   return parts.join(' · ');
 }
 let slateGames = [];
+// Buckets a game into its real broadcast window (Eastern time, since that's the window NFL
+// fans actually think in) so the Slate tab can be read top-to-bottom in the order the week
+// actually plays out, instead of whatever order the schedule API happened to list games in.
+function kickoffSlot(dateStr) {
+  if (!dateStr) return { key: 'tbd', label: 'Time TBD', order: 99 };
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return { key: 'tbd', label: 'Time TBD', order: 99 };
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', hour12: false });
+  const parts = Object.fromEntries(fmt.formatToParts(d).map(p => [p.type, p.value]));
+  const hour = Number(parts.hour);
+  switch (parts.weekday) {
+    case 'Thu': return { key: 'thu', label: 'Thursday Night Football', order: 0 };
+    case 'Fri': return { key: 'fri', label: 'Friday Night Football', order: 1 };
+    case 'Sat': return { key: 'sat', label: 'Saturday', order: 2 };
+    case 'Sun':
+      if (hour < 16) return { key: 'sun1', label: 'Sunday — 1:00 PM ET', order: 3 };
+      if (hour < 19) return { key: 'sun4', label: 'Sunday — 4:05 / 4:25 PM ET', order: 4 };
+      return { key: 'snf', label: 'Sunday Night Football', order: 5 };
+    case 'Mon': return { key: 'mnf', label: 'Monday Night Football', order: 6 };
+    default: return { key: 'other', label: parts.weekday + ' Games', order: 7 };
+  }
+}
 function renderTeamModel(d, props) {
   setStatus(d.cached);
   const games = d.games || [];
@@ -618,9 +642,12 @@ function renderTeamModel(d, props) {
     const recC = props.rec.filter(p=>gameTeams.includes(p.team)).map(p=>({...p,statLabel:'Receiving Yds',value:p.projected}));
     const passC = props.pass.filter(p=>gameTeams.includes(p.team)).map(p=>({...p,statLabel:'Passing Yds',value:p.projected}));
     const allProps = [...rushC,...recC,...passC].sort((a,b)=>b.value-a.value);
-    return { g, m, homeTd, awayTd, gameTop, allProps, weatherText: weatherLabel(g.weather) };
+    return { g, m, homeTd, awayTd, gameTop, allProps, weatherText: weatherLabel(g.weather), slot: kickoffSlot(g.date) };
   });
-  const cards = slateGames.map((sg,i) => {
+  // Sort chronologically (slot window, then exact kickoff time within a window) so the week
+  // reads top-to-bottom the way it's actually played: TNF, Sun early, Sun late, SNF, MNF.
+  slateGames.sort((a,b) => a.slot.order - b.slot.order || new Date(a.g.date||0) - new Date(b.g.date||0));
+  const cardHTML = (sg,i) => {
     const {g,m,homeTd,awayTd,gameTop,allProps,weatherText} = sg; const isShootout = m.shootoutSignal; const topProp = allProps[0];
     return `<div class="slate-card${isShootout?' shootout':''}" data-slate-idx="${i}">
       <div class="slate-hdr"><div class="slate-weather">${weatherText?icon('sun','color:var(--t3)')+' '+weatherText:''}</div>
@@ -636,8 +663,20 @@ function renderTeamModel(d, props) {
       ${awayTd[0]?`<div class="slate-target-row"><span class="slate-target-lbl">${g.awayTeam} TD</span><span class="slate-target-val">${awayTd[0].name}</span><span class="slate-target-prob">${awayTd[0].prob}%</span></div>`:''}
       ${homeTd[0]?`<div class="slate-target-row"><span class="slate-target-lbl">${g.homeTeam} TD</span><span class="slate-target-val">${homeTd[0].name}</span><span class="slate-target-prob">${homeTd[0].prob}%</span></div>`:''}</div>
       ${topProp?`<div class="slate-top-prop"><div class="slate-top-prop-lbl">Top Prop Projection</div><div class="slate-target-row"><span class="slate-target-val">${topProp.name} — ${topProp.statLabel}</span><span class="slate-target-prob">${topProp.value}</span></div></div>`:''}</div>`;
-  }).join('');
-  document.getElementById('content').innerHTML = '<div class="slate-grid">' + cards + '</div>';
+  };
+  // Group the now-chronologically-sorted games by broadcast window, keeping each card's
+  // data-slate-idx pointing at its index in the flat sorted array (not a per-group index) so
+  // openSlateDrawer(idx) still resolves to the right game.
+  const groupsHTML = [];
+  let i = 0;
+  while (i < slateGames.length) {
+    const slotKey = slateGames[i].slot.key;
+    const slotLabel = slateGames[i].slot.label;
+    const groupCards = [];
+    while (i < slateGames.length && slateGames[i].slot.key === slotKey) { groupCards.push(cardHTML(slateGames[i], i)); i++; }
+    groupsHTML.push(`<div class="slate-group-hdr">${slotLabel}</div><div class="slate-grid">${groupCards.join('')}</div>`);
+  }
+  document.getElementById('content').innerHTML = groupsHTML.join('');
   document.querySelectorAll('.slate-card').forEach(card => card.addEventListener('click', () => openSlateDrawer(Number(card.dataset.slateIdx))));
 }
 function openSlateDrawer(idx) {
