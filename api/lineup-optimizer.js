@@ -1,5 +1,5 @@
 const { buildDfsProjections } = require('../lib/dfs-projections.js');
-const { optimizeLineup } = require('../lib/dfs-optimizer.js');
+const { optimizeLineups } = require('../lib/dfs-optimizer.js');
 
 // Single-game Showdown only (Captain + 5 FLEX, one game). A DK "Classic" multi-game slate
 // uses real roster positions (QB/RB/RB/WR/WR/WR/TE/FLEX/DST) and a schedule spanning several
@@ -8,7 +8,7 @@ const { optimizeLineup } = require('../lib/dfs-optimizer.js');
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
-  const { players, awayAbbr, homeAbbr, year, lockedIds, captainLockId, excludedIds } = req.body || {};
+  const { players, awayAbbr, homeAbbr, year, lockedIds, captainLockId, excludedIds, lineupCount, maxExposure } = req.body || {};
   if (!Array.isArray(players) || !players.length) {
     return res.status(400).json({ error: 'players array required — upload a DK Showdown salary CSV/XLSX and pass its FLEX rows' });
   }
@@ -21,13 +21,18 @@ module.exports = async function handler(req, res) {
     const projectionData = await buildDfsProjections({ uploadedPlayers: players, year: Number(year), awayAbbr, homeAbbr });
 
     const pool = projectionData.players.filter(p => p.points > 0);
-    const lineup = optimizeLineup(pool, {
+    // Capped at 10: each additional lineup re-runs the knapsack DP for its candidate captain,
+    // so this bounds worst-case cost to roughly 2x a single-lineup request, not unbounded.
+    const count = Math.min(Math.max(Number(lineupCount) || 1, 1), 10);
+    const lineups = optimizeLineups(pool, {
+      count,
+      maxExposure: Number(maxExposure) || 0.6,
       lockedIds: Array.isArray(lockedIds) ? lockedIds : [],
       captainLockId: captainLockId || null,
       excludedIds: Array.isArray(excludedIds) ? excludedIds : [],
     });
 
-    if (!lineup) {
+    if (!lineups.length) {
       return res.status(200).json({
         error: 'No valid lineup fits the salary cap with these locks/excludes — try unlocking a player or freeing up salary',
         week: projectionData.week, year: projectionData.year, model: projectionData.model,
@@ -39,7 +44,7 @@ module.exports = async function handler(req, res) {
       week: projectionData.week, year: projectionData.year,
       away: projectionData.away, home: projectionData.home,
       model: projectionData.model,
-      lineup,
+      lineups,
       players: projectionData.players,
       elapsed: Date.now() - start,
     });

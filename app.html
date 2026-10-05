@@ -1124,7 +1124,7 @@ function attachManualParlayHandlers(legPool) {
 // server-side (exact knapsack, not a heuristic — see lib/dfs-optimizer.js). Single-game
 // Showdown only; a multi-game Classic slate has a different roster shape entirely.
 
-const dfsState = { players: [], awayAbbr: null, homeAbbr: null, year: null, locked: new Set(), captainLock: null, excluded: new Set(), lastResult: null };
+const dfsState = { players: [], awayAbbr: null, homeAbbr: null, year: null, locked: new Set(), captainLock: null, excluded: new Set(), lastResult: null, lineupCount: 3 };
 
 function dfsSplitCSVLine(line) {
   const out = []; let cur = ''; let inQuotes = false;
@@ -1263,12 +1263,20 @@ function renderDfsPlayerTable() {
     <div style="font-size:10px;font-family:var(--mono);color:var(--t3);margin-bottom:12px">LOCK = must be in the lineup &nbsp;·&nbsp; CPT = force as Captain (implies LOCK) &nbsp;·&nbsp; OUT = exclude entirely</div>
     <div class="table-scroll"><table class="td-table"><thead><tr><th>Pos</th><th>Player</th><th>Team</th><th class="num-col">Salary</th><th class="num-col">Avg Pts</th><th>Status</th><th>Controls</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-      <div class="dfs-build-btn${overLocked ? ' disabled' : ''}" id="dfsBuildBtn">${icon('bolt')} Build Optimal Lineup</div>
-      <div id="dfsBuildStatus" style="font-family:var(--mono);font-size:11px;color:${overLocked ? 'var(--red)' : 'var(--t3)'}">${overLocked ? 'Too many locked players for a 6-man roster — unlock some first' : ''}</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+      <span style="font-size:11px;color:var(--t3)">Lineups to generate</span>
+      <div class="pos-pills">${[1,3,5,10].map(n => `<div class="pos-pill${dfsState.lineupCount===n?' on':''}" data-dfs-count="${n}">${n}</div>`).join('')}</div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <div class="dfs-build-btn${overLocked ? ' disabled' : ''}" id="dfsBuildBtn">${icon('bolt')} Build ${dfsState.lineupCount>1?dfsState.lineupCount+' Lineups':'Optimal Lineup'}</div>
+      <div id="dfsBuildStatus" style="font-size:11px;color:${overLocked ? 'var(--red)' : 'var(--t3)'}">${overLocked ? 'Too many locked players for a 6-man roster — unlock some first' : ''}</div>
     </div>
     <div id="dfsResults" style="margin-top:20px"></div>`;
   document.getElementById('dfsResetLink').addEventListener('click', dfsResetUpload);
+  document.querySelectorAll('[data-dfs-count]').forEach(el => el.addEventListener('click', () => {
+    dfsState.lineupCount = Number(el.dataset.dfsCount);
+    renderDfsPlayerTable();
+  }));
   document.querySelectorAll('[data-dfs-lock]').forEach(el => el.addEventListener('click', () => {
     const id = el.dataset.dfsLock;
     if (dfsState.locked.has(id)) dfsState.locked.delete(id); else dfsState.locked.add(id);
@@ -1297,6 +1305,7 @@ async function dfsBuildLineup() {
     const payload = {
       players: dfsState.players, awayAbbr: dfsState.awayAbbr, homeAbbr: dfsState.homeAbbr, year: dfsState.year,
       lockedIds: [...dfsState.locked], captainLockId: dfsState.captainLock, excludedIds: [...dfsState.excluded],
+      lineupCount: dfsState.lineupCount,
     };
     const res = await fetch('/api/lineup-optimizer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await res.json();
@@ -1310,23 +1319,32 @@ async function dfsBuildLineup() {
 }
 
 function renderDfsResults(data) {
-  const { lineup, model, players, away, home, week } = data;
-  const legHTML = (p, isCaptain) => `<div class="parlay-leg" data-dfs-detail="${p.id}" style="cursor:pointer">
+  const { lineups, model, players, away, home, week } = data;
+  // Exposure across the generated set — shown per-leg when there's more than one lineup, so
+  // it's visible at a glance which plays are the "core" (high exposure) vs. differentiators.
+  const exposureCount = {};
+  lineups.forEach(l => {
+    exposureCount[l.captain.id] = (exposureCount[l.captain.id] || 0) + 1;
+    l.flex.forEach(p => { exposureCount[p.id] = (exposureCount[p.id] || 0) + 1; });
+  });
+  const legHTML = (p, isCaptain, lineup) => `<div class="parlay-leg" data-dfs-detail="${p.id}" style="cursor:pointer">
     <div class="parlay-leg-num">${isCaptain ? icon('star', 'color:var(--amber)') : p.pos}</div>
     <div class="parlay-leg-info"><div class="parlay-leg-name">${p.name}${isCaptain ? ' <span style="color:var(--amber);font-weight:700;font-size:10px">CPT</span>' : ''} <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.team})</span></div>
-      <div class="parlay-leg-detail">$${(isCaptain ? lineup.captainSalary : p.salary).toLocaleString()}${!p.modeled ? ' · recency estimate' : ''}</div></div>
+      <div class="parlay-leg-detail">$${(isCaptain ? lineup.captainSalary : p.salary).toLocaleString()}${!p.modeled ? ' · recency estimate' : ''}${lineups.length>1?` · in ${exposureCount[p.id]}/${lineups.length} lineups`:''}</div></div>
     <div class="parlay-leg-prob">${(isCaptain ? p.points * 1.5 : p.points).toFixed(1)}pts</div></div>`;
-  const lineupHTML = `<div class="parlay-card">
-    <div class="parlay-hdr"><div class="parlay-title">Optimal Lineup — ${away} @ ${home}, Week ${week}</div>
+  const lineupCardHTML = (lineup, idx) => `<div class="parlay-card">
+    <div class="parlay-hdr"><div class="parlay-title">${lineups.length>1?`Lineup ${idx+1} of ${lineups.length}`:'Optimal Lineup'} — ${away} @ ${home}, Week ${week}</div>
       <div class="parlay-combined"><div class="parlay-combined-val">${lineup.totalPoints.toFixed(1)}</div><div class="parlay-combined-lbl">Proj. Points</div></div></div>
-    ${legHTML(lineup.captain, true)}
-    ${lineup.flex.map(p => legHTML(p, false)).join('')}
+    ${legHTML(lineup.captain, true, lineup)}
+    ${lineup.flex.map(p => legHTML(p, false, lineup)).join('')}
     <div style="margin-top:10px">
-      <div style="display:flex;justify-content:space-between;font-size:11px;font-family:var(--mono);color:var(--t3)"><span>Salary used</span><span>$${lineup.totalSalary.toLocaleString()} / $50,000</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--t3)"><span>Salary used</span><span>$${lineup.totalSalary.toLocaleString()} / $50,000</span></div>
       <div class="dfs-cap-bar"><div class="dfs-cap-fill" style="width:${(lineup.totalSalary / 50000 * 100).toFixed(1)}%"></div></div>
-    </div>
-    <div class="parlay-disclaimer">Model projects ${away} ${model.awayImplied} – ${home} ${model.homeImplied} (total ${model.total}${model.shootoutSignal ? ', shootout range' : ''}). This maximizes expected points under your locks — it does not account for who else in your contest is rostering the same players.</div>
-  </div>`;
+    </div></div>`;
+  const lineupHTML = lineups.map(lineupCardHTML).join('') +
+    `<div class="parlay-disclaimer">Model projects ${away} ${model.awayImplied} – ${home} ${model.homeImplied} (total ${model.total}${model.shootoutSignal ? ', shootout range' : ''}). ${lineups.length>1
+      ? `Each lineup maximizes expected points for a different Captain, with a cap on how often any one FLEX player repeats across the set — a hedge against any single projection being wrong, not a guarantee any individual build wins.`
+      : `This maximizes expected points under your locks — it does not account for who else in your contest is rostering the same players.`}</div>`;
 
   const allSorted = [...players].sort((a, b) => b.points - a.points);
   const tableRows = allSorted.map(p => `<tr class="expand-row" data-dfs-detail="${p.id}">
