@@ -31,11 +31,15 @@ function topUsagePlayersForTeamFallback(playerRows, teamEspnAbbr, throughWeek, p
     if (!byPos[p.position]) return;
     const recent = recentGames(p.rows, throughWeek, lastN);
     const touches = recent.reduce((s, r) => s + (parseFloat(r.targets) || 0) + (parseFloat(r.carries) || 0), 0);
-    byPos[p.position].push({ name, histTeam: team, volume: touches });
+    const lastWeekPlayed = recent.length ? Math.max(...recent.map(r => Number(r.week))) : -1;
+    byPos[p.position].push({ name, histTeam: team, volume: touches, lastWeekPlayed });
   });
 
+  // Who played most recently wins first — see lib/roster-pool.js's poolFromRoster for the full
+  // reasoning.
+  const byRecency = (a, b) => b.lastWeekPlayed - a.lastWeekPlayed || b.volume - a.volume;
   let pool = [];
-  for (const pos of TD_POSITIONS) pool = pool.concat(byPos[pos].sort((a, b) => b.volume - a.volume).slice(0, perPosition));
+  for (const pos of TD_POSITIONS) pool = pool.concat(byPos[pos].sort(byRecency).slice(0, perPosition));
   return pool;
 }
 
@@ -54,10 +58,14 @@ function tdPoolFromRoster(roster, playerRows, count = 8, throughWeek = -1) {
     const candidateRows = playerRows.filter(r => r.player_display_name === entry.displayName && r.team === histTeam && r.season_type === 'REG');
     const rows = recentGames(candidateRows, throughWeek, lastN);
     const touches = rows.reduce((s, r) => s + (parseFloat(r.targets) || 0) + (parseFloat(r.carries) || 0), 0);
-    return { name: entry.displayName, position: entry.position, histTeam, volume: touches };
+    const lastWeekPlayed = rows.length ? Math.max(...rows.map(r => Number(r.week))) : -1;
+    return { name: entry.displayName, position: entry.position, histTeam, volume: touches, lastWeekPlayed };
   }).filter(Boolean);
 
-  return withVolume.sort((a, b) => b.volume - a.volume).slice(0, count);
+  // Who played most recently wins first — see lib/roster-pool.js's poolFromRoster for the full
+  // reasoning (a role change mid-window otherwise lets the old starter's bigger multi-game
+  // total keep outranking the new starter's single more-recent game).
+  return withVolume.sort((a, b) => b.lastWeekPlayed - a.lastWeekPlayed || b.volume - a.volume).slice(0, count);
 }
 
 module.exports = async function handler(req, res) {
