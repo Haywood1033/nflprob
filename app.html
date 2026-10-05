@@ -778,7 +778,11 @@ function buildUnifiedBestPlays(raw) {
     displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/350)*100), signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
     detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Attempts (L5)', p.attempts]] }));
   const all = [...td, ...rush, ...rec, ...pass];
-  const notable = all.filter(p => p.badge);
+  // Best Plays is specifically "what should I bet," not "everything that cleared any bar" — a
+  // Value Play badge is still shown on each prop's own tab, but only All-Star/Elite convictions
+  // (tierWeight >= 2) make the cut here. Was showing every badged play regardless of tier,
+  // which buried the few genuinely strong plays in a long tail of borderline ones.
+  const notable = all.filter(p => p.badge && tierWeight(p.badge) >= 2);
   notable.sort((a,b) => { const tw=tierWeight(b.badge)-tierWeight(a.badge); if (tw!==0) return tw; const sc=b.signalCount-a.signalCount; if (sc!==0) return sc; return b.normalizedValue-a.normalizedValue; });
   return notable;
 }
@@ -808,7 +812,7 @@ function renderBestPlays() {
       <div class="best-value">${p.displayValue}</div><div class="best-badge" style="color:${p.badge.color}">${badgeIcon(p.badge.label)}${badgeText(p.badge.label)}</div></div></div>`;
   }).join('');
   document.getElementById('content').innerHTML = pillsHTML + `<div class="best-list">${rows}</div>
-    <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">Only plays that cleared a signal-backed badge show here.</div>`;
+    <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">Only All-Star and Elite plays show here — a signal-backed, high-sample conviction call, not just anything that cleared the lowest bar. Value Play badges are still visible on each prop's own tab.</div>`;
   document.querySelectorAll('.best-row-top').forEach(row => row.addEventListener('click', () => {
     const p = byKey[row.dataset.expandKey];
     const header = `<div class="dd-name">${p.name}${p.position?` <span style="color:var(--t3);font-weight:400;font-size:13px">(${p.position})</span>`:''}</div><div class="dd-sub">${p.team} vs ${p.opponent}</div>`;
@@ -860,7 +864,7 @@ async function loadParlayBuilder() {
 function buildParlayLegPool(players) {
   const legs = players.map(p => ({ name:p.name, position:p.position, team:p.team, opponent:p.opponent, gameId:p.gameId,
     displayValue: 'Anytime TD', legProb: p.prob/100, normalizedValue: p.prob, signalCount:p.signalCount, badge:p.badge, signals:p.signals }));
-  const notable = legs.filter(p => p.badge); // same "genuinely notable" bar as Best Plays — a parlay leg should be a good play, not just any play
+  const notable = legs.filter(p => p.badge && tierWeight(p.badge) >= 2); // same All-Star/Elite bar as Best Plays — a parlay leg should be a genuinely strong play, not just any play
   notable.sort((a,b) => { const tw=tierWeight(b.badge)-tierWeight(a.badge); if (tw!==0) return tw; const sc=b.signalCount-a.signalCount; if (sc!==0) return sc; return b.normalizedValue-a.normalizedValue; });
   return notable;
 }
