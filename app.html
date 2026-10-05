@@ -1087,7 +1087,15 @@ function renderSameGameParlay() {
       <div class="parlay-leg-detail">${leg.team} vs ${leg.opponent} — ${leg.typeLabel} · ${badgeText(leg.badge.label)}</div></div>
     <div class="parlay-leg-prob">${leg.displayValue}</div></div>`).join('');
 
-  return pickerHTML + `<div class="parlay-card">
+  // Honest about coming up short of the requested count — showing 3 legs with "4 legs"
+  // highlighted, with no explanation, reads as broken. It isn't: there just aren't enough
+  // All-Star/Elite plays in this game yet, same as the Sharp Plays empty state's philosophy —
+  // say so rather than silently returning fewer than asked for.
+  const shortfallHTML = legs.length < parlaySgpLegCount
+    ? `<div class="empty" style="padding:10px 4px;margin-top:-6px;margin-bottom:14px;text-align:left"><div style="font-size:12px;color:var(--t3)">Only ${legs.length} of the requested ${parlaySgpLegCount} legs cleared the All-Star/Elite bar for this game — showing what's actually there instead of padding the parlay with a weaker play.</div></div>`
+    : '';
+
+  return pickerHTML + shortfallHTML + `<div class="parlay-card">
     <div class="parlay-hdr"><div class="parlay-title">Same Game Parlay — ${gameLabel}</div></div>
     ${legsHTML}</div>
     <div class="parlay-disclaimer">All legs come from this one game, so they are NOT independent — no combined probability is shown here. Mixing Anytime TD odds with yardage projections into one number isn't meaningful to begin with, and same-game legs move together anyway (e.g. this turning into a shootout lifts every leg's real chances at once). Use each leg's own badge and signals to weigh conviction instead of a single fabricated percentage.</div>`;
