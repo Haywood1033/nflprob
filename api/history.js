@@ -1,6 +1,7 @@
 // api/history.js — uses pg (node-postgres) directly, mirrors HR engine's history.js
 // Works with Supabase's Postgres connection string as-is (DATABASE_URL from Supabase settings).
 const { Pool } = require('pg');
+const { gradeWeekPredictions, summarizeGraded } = require('../lib/grading.js');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
@@ -8,6 +9,34 @@ async function query(text, params) {
   const client = await pool.connect();
   try { return await client.query(text, params); }
   finally { client.release(); }
+}
+
+// week is stored as "2026-W03" (schema.prisma's own documented format) — split back into the
+// plain year/week numbers the nflverse-backed grading functions key off of.
+function parseWeekKey(weekKey) {
+  const m = String(weekKey).match(/^(\d{4})-W(\d{1,2})$/);
+  if (!m) return null;
+  return { year: Number(m[1]), week: Number(m[2]) };
+}
+
+// `summary` is a TEXT column (predictions/team_model/signal_lock are JSONB, which pg parses
+// back into objects automatically — TEXT doesn't), so it comes back from the DB as a raw
+// JSON string and needs parsing on the way out.
+function safeJsonParse(text) {
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+// Combines every already-graded prediction across the stored weeks into one calibration
+// summary — this is what the Accuracy tab's top-line numbers come from. Scoped to graded
+// records only (resultsAdded) since an ungraded week has no `actual`/`hit` values yet.
+function aggregateAcrossWeeks(rows) {
+  const allPredictions = [];
+  for (const r of rows) {
+    if (!r.results_added || !Array.isArray(r.predictions)) continue;
+    allPredictions.push(...r.predictions);
+  }
+  return allPredictions.length ? summarizeGraded(allPredictions) : null;
 }
 
 module.exports = async function handler(req, res) {
@@ -37,10 +66,11 @@ module.exports = async function handler(req, res) {
           week: r.week, predictions: r.predictions,
           teamModel: r.team_model,
           signalLock: r.signal_lock,
-          resultsAdded: r.results_added, summary: r.summary,
+          resultsAdded: r.results_added, summary: safeJsonParse(r.summary),
           savedAt: r.saved_at, fetchedAt: r.fetched_at,
         })),
         count: rows.length,
+        aggregate: aggregateAcrossWeeks(rows),
       });
     }
 
@@ -95,19 +125,32 @@ module.exports = async function handler(req, res) {
         if (!record) return res.status(404).json({ error: 'No predictions for ' + week });
         if (record.results_added) {
           return res.status(200).json({ ok: true, record: {
-            ...record,
+            week: record.week,
             predictions: record.predictions,
             teamModel: record.team_model,
             resultsAdded: record.results_added,
-            summary: record.summary,
+            summary: safeJsonParse(record.summary),
           }, alreadyAdded: true });
         }
 
-        // NOTE: actual result-grading logic (fetching box scores, matching TD scorers,
-        // actual rush/rec/pass yardage, and final scores against team_model predictions)
-        // gets filled in once we build the props layer — same shape as HR engine's
-        // 'results' action, just swapping MLB boxscore for NFL boxscore/game summary.
-        return res.status(501).json({ error: 'Result grading not yet wired — needs props layer first' });
+        const parsed = parseWeekKey(record.week);
+        if (!parsed) return res.status(500).json({ error: `Stored week key "${record.week}" isn't in the expected YYYY-WNN format` });
+
+        const { graded, summary, fullyGraded, partiallyGraded } = await gradeWeekPredictions(parsed.week, parsed.year, record.predictions || []);
+        if (!partiallyGraded) {
+          return res.status(200).json({ ok: true, week, notReady: true, message: 'None of this week\'s games have final scores yet — try again after kickoff' });
+        }
+
+        // Only mark fully graded weeks as "done" — a partial grade (e.g. checked mid-Sunday,
+        // before SNF/MNF finish) gets its predictions updated with whatever's gradeable so
+        // far, but stays open so a later call can fill in the rest instead of locking in an
+        // incomplete picture as final.
+        await query(
+          `UPDATE weekly_predictions SET predictions = $2::jsonb, results_added = $3, summary = $4 WHERE week = $1`,
+          [week, JSON.stringify(graded), fullyGraded, JSON.stringify(summary)]
+        );
+
+        return res.status(200).json({ ok: true, week, fullyGraded, partiallyGraded, summary, predictions: graded });
       }
     }
   } catch (e) {
