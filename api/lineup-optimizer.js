@@ -28,7 +28,7 @@ module.exports = async function handler(req, res) {
     const count = Math.min(Math.max(Number(lineupCount) || 1, 1), 20);
     const lineups = optimizeLineups(pool, {
       count,
-      maxExposure: Number(maxExposure) || 0.6,
+      maxExposure: Number(maxExposure) || 0.35,
       lockedIds: Array.isArray(lockedIds) ? lockedIds : [],
       captainLockId: captainLockId || null,
       excludedIds: Array.isArray(excludedIds) ? excludedIds : [],
