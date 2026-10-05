@@ -464,14 +464,9 @@ function renderThisWeek(teamData, propsData) {
   const topSignals = [...signalPlays].sort((a,b)=>b.signalCount!==a.signalCount?b.signalCount-a.signalCount:b.prob-a.prob).slice(0,5);
   const signalHTML = topSignals.map(p=>`<div class="today-target"><div style="flex:1"><div class="today-target-name">${p.name}</div><div class="today-target-sub">${p.team} vs ${p.opponent}</div></div>
     <div style="text-align:right"><div class="today-target-prob" style="color:var(--teal)">${p.prob}%</div>${p.badge?`<div style="font-size:8px;font-family:var(--mono);font-weight:700;color:${p.badge.color};margin-top:2px;display:flex;align-items:center;justify-content:flex-end;gap:4px">${badgeIcon(p.badge.label)}${badgeText(p.badge.label)}</div>`:''}</div></div>`).join('') || '<div class="gs-meta" style="padding:8px 0">No signal plays</div>';
-  const leansHTML = games.map(g => { const m=g.model||{}; const lean=m.shootoutSignal?icon('flame','color:var(--amber)')+' Shootout':m.lowScoringSignal?icon('shield','color:var(--blue)')+' Low Scoring':'';
-    return `<div class="game-lean-row"><div class="game-lean-teams">${g.awayTeam} @ ${g.homeTeam}</div>
-      <div class="game-lean-meta"><span>${g.awayTeam} ${m.awayImplied??'—'}</span><span>${g.homeTeam} ${m.homeImplied??'—'}</span>
-      <span style="color:var(--teal)">Total ${m.total??'—'}</span><span>${g.homeTeam} ${m.homeWinProb??'—'}% ML</span>${lean?`<span>${lean}</span>`:''}</div></div>`;}).join('');
   document.getElementById('content').innerHTML = stripHTML + kpiHTML + bestHTML +
     `<div class="today-two-col"><div class="today-section"><div class="today-section-hdr"><span>Top TD Targets</span></div><div class="today-section-body">${top5HTML}</div></div>
-    <div class="today-section"><div class="today-section-hdr"><span>Top Signal Plays</span></div><div class="today-section-body">${signalHTML}</div></div></div>
-    <div class="today-section"><div class="today-section-hdr"><span>Game Leans</span></div><div class="today-section-body">${leansHTML}</div></div>`;
+    <div class="today-section"><div class="today-section-hdr"><span>Top Signal Plays</span></div><div class="today-section-body">${signalHTML}</div></div></div>`;
 }
 async function loadTeamModel() {
   document.getElementById('content').innerHTML = loadingHTML('Loading slate…');
