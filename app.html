@@ -374,10 +374,25 @@ const TAB_SIGNALS = {
   pass: ['High Volume', 'Favorable Matchup', 'Hot Streak', 'Pass-Heavy Script', 'Sample Confidence'],
 };
 function matchupKey(p) { return [p.team, p.opponent].sort().join(' vs '); }
+// Populated by loadTdProps/loadRushProps/loadRecProps/loadPassProps (team-model is the only
+// place real kickoff dates live — prop rows only carry a gameId) so the matchup dropdown can
+// sort chronologically (TNF → Sun 1pm → Sun 4pm → SNF → MNF) like every other game list in the
+// app, instead of alphabetically by team name.
+let propsGameSlotMap = {};
+async function ensurePropsGameSlotMap() {
+  try { const teamRes = await cachedJSON('/api/team-model?week=' + week); propsGameSlotMap = gameSlotMap(teamRes.games); }
+  catch (e) { /* non-fatal — matchup dropdown just falls back to alphabetical ordering */ }
+}
 function buildMatchupOptions(players) {
-  const seen = new Set(); const options = [];
-  for (const p of players) { const key = matchupKey(p); if (!seen.has(key)) { seen.add(key); options.push(key); } }
-  return options.sort();
+  const seen = new Map(); // matchupKey -> gameId (first player carrying that matchup)
+  for (const p of players) { const key = matchupKey(p); if (!seen.has(key)) seen.set(key, p.gameId); }
+  const entries = [...seen.entries()];
+  entries.sort((a, b) => {
+    const sa = propsGameSlotMap[a[1]], sb = propsGameSlotMap[b[1]];
+    if (sa && sb) return sa.order - sb.order;
+    return a[0].localeCompare(b[0]); // fallback: alphabetical, if the slot map isn't populated yet
+  });
+  return entries.map(e => e[0]);
 }
 function hasActiveSignal(p, label) { return !!(p.signals && p.signals.some(s => s.label === label && s.active)); }
 function filterPlayers(players, matchup, position, signal) {
@@ -446,7 +461,7 @@ async function loadThisWeek() {
 }
 function renderThisWeek(teamData, propsData, allProps) {
   setStatus(teamData.cached||propsData.cached);
-  const games = teamData.games || []; const players = propsData.players || [];
+  const games = sortGamesChrono(teamData.games || []); const players = propsData.players || [];
   if (!games.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No games found</h3></div>'; return; }
   const stripHTML = '<div class="game-strip">' + games.map(g => {
     const m = g.model||{}; const awayTop = players.filter(p=>p.team===g.awayTeam).sort((a,b)=>b.prob-a.prob)[0];
@@ -631,11 +646,30 @@ function kickoffSlot(dateStr) {
     default: return { key: 'other', label: parts.weekday + ' Games', order: 7 };
   }
 }
+// Shared chronological game ordering (TNF → Sun 1pm → Sun 4pm → SNF → MNF) — every dropdown,
+// strip, or game picker in the app uses this instead of whatever order its API response
+// happened to return, so "which game am I looking at" always means the same position in every
+// tab. sortGamesChrono sorts objects that carry their own `.date` (team-model's games array);
+// gameSlotMap builds a gameId -> slot lookup for contexts that only have a gameId per item
+// (player prop rows, parlay legs) and need to look the date up from the team-model games list.
+function sortGamesChrono(games) {
+  return [...games].sort((a, b) => {
+    const sa = kickoffSlot(a.date), sb = kickoffSlot(b.date);
+    return sa.order - sb.order || new Date(a.date||0) - new Date(b.date||0);
+  });
+}
+function gameSlotMap(games) {
+  const map = {};
+  (games||[]).forEach(g => { map[g.gameId] = kickoffSlot(g.date); });
+  return map;
+}
 function renderTeamModel(d, props) {
   setStatus(d.cached);
-  const games = d.games || [];
+  const games = sortGamesChrono(d.games || []);
   if (!games.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No games found</h3></div>'; return; }
   maybeSnapshotWeek(d, props);
+  // games is already chronologically sorted (TNF → Sun 1pm → Sun 4pm → SNF → MNF), so
+  // slateGames inherits that order directly from the .map() below.
   slateGames = games.map(g => {
     const m = g.model||{}; const gameTeams=[g.homeTeam,g.awayTeam];
     const homeTd = props.td.filter(p=>p.team===g.homeTeam).sort((a,b)=>b.prob-a.prob);
@@ -647,9 +681,6 @@ function renderTeamModel(d, props) {
     const allProps = [...rushC,...recC,...passC].sort((a,b)=>b.value-a.value);
     return { g, m, homeTd, awayTd, gameTop, allProps, weatherText: weatherLabel(g.weather), slot: kickoffSlot(g.date) };
   });
-  // Sort chronologically (slot window, then exact kickoff time within a window) so the week
-  // reads top-to-bottom the way it's actually played: TNF, Sun early, Sun late, SNF, MNF.
-  slateGames.sort((a,b) => a.slot.order - b.slot.order || new Date(a.g.date||0) - new Date(b.g.date||0));
   const cardHTML = (sg,i) => {
     const {g,m,homeTd,awayTd,gameTop,allProps,weatherText} = sg; const isShootout = m.shootoutSignal; const topProp = allProps[0];
     const awayFav = m.awayWinProb != null && m.homeWinProb != null && m.awayWinProb > m.homeWinProb;
@@ -708,7 +739,7 @@ function openSlateDrawer(idx) {
 }
 async function loadTdProps() {
   document.getElementById('content').innerHTML = loadingHTML('Loading anytime TD props…');
-  try { const d = await cachedJSON('/api/props?week=' + week); rawData.td = d; renderTdProps(d); }
+  try { const [d] = await Promise.all([cachedJSON('/api/props?week=' + week), ensurePropsGameSlotMap()]); rawData.td = d; renderTdProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
 function playerDrawerHeader(p) {
@@ -746,7 +777,7 @@ function renderTdProps(d) {
 }
 async function loadRushProps() {
   document.getElementById('content').innerHTML = loadingHTML('Loading rushing props…');
-  try { const d = await cachedJSON('/api/rush-props?week=' + week); rawData.rush = d; renderRushProps(d); }
+  try { const [d] = await Promise.all([cachedJSON('/api/rush-props?week=' + week), ensurePropsGameSlotMap()]); rawData.rush = d; renderRushProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
 function rushDrawerBody(p) {
@@ -782,7 +813,7 @@ function renderRushProps(d) {
 }
 async function loadRecProps() {
   document.getElementById('content').innerHTML = loadingHTML('Loading receiving props…');
-  try { const d = await cachedJSON('/api/rec-props?week=' + week); rawData.rec = d; renderRecProps(d); }
+  try { const [d] = await Promise.all([cachedJSON('/api/rec-props?week=' + week), ensurePropsGameSlotMap()]); rawData.rec = d; renderRecProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
 function recDrawerBody(p) {
@@ -818,7 +849,7 @@ function renderRecProps(d) {
 }
 async function loadPassProps() {
   document.getElementById('content').innerHTML = loadingHTML('Loading passing props…');
-  try { const d = await cachedJSON('/api/pass-props?week=' + week); rawData.pass = d; renderPassProps(d); }
+  try { const [d] = await Promise.all([cachedJSON('/api/pass-props?week=' + week), ensurePropsGameSlotMap()]); rawData.pass = d; renderPassProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
 function passDrawerBody(p) {
@@ -990,7 +1021,7 @@ async function loadParlayBuilder() {
     ]);
     parlayRaw = tdRes.players || [];
     parlayAllProps = { td: tdRes.players||[], rush: rushRes.players||[], rec: recRes.players||[], pass: passRes.players||[] };
-    parlayGames = teamRes.games || [];
+    parlayGames = sortGamesChrono(teamRes.games || []);
     renderParlayBuilder();
   } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
@@ -1122,7 +1153,15 @@ function renderManualParlayBuilder(legPool) {
     if (!gamesMap[leg.gameId]) gamesMap[leg.gameId] = { gameId: leg.gameId, teams: leg.team + ' vs ' + leg.opponent, legs: [] };
     gamesMap[leg.gameId].legs.push(leg);
   }
-  const games = Object.values(gamesMap);
+  // Chronological order (TNF → Sun 1pm → Sun 4pm → SNF → MNF), same as every other game list
+  // in the app — parlayGames (team-model data) is where the real kickoff dates live, since
+  // legPool's TD-prop rows only carry a gameId, not a date.
+  const slotByGameId = gameSlotMap(parlayGames);
+  const games = Object.values(gamesMap).sort((a, b) => {
+    const sa = slotByGameId[a.gameId], sb = slotByGameId[b.gameId];
+    if (!sa || !sb) return 0;
+    return sa.order - sb.order;
+  });
 
   const pickerHTML = games.map(g => {
     const topLeg = g.legs[0];
