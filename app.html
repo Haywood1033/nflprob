@@ -975,12 +975,22 @@ let parlaySubtab = 'best3';
 let parlayManualSelectedGames = new Set();
 let parlayManualSecondLegs = {};
 let parlayManualSecondLegOpen = new Set();
+let parlayAllProps = null;
+let parlayGames = [];
+let parlaySgpGameId = null;
+let parlaySgpLegCount = 4;
 
 async function loadParlayBuilder() {
   document.getElementById('content').innerHTML = loadingHTML('Building parlays…');
   try {
-    const d = await cachedJSON('/api/props?week=' + week);
-    parlayRaw = d.players || [];
+    const [tdRes, rushRes, recRes, passRes, teamRes] = await Promise.all([
+      cachedJSON('/api/props?week=' + week), cachedJSON('/api/rush-props?week=' + week),
+      cachedJSON('/api/rec-props?week=' + week), cachedJSON('/api/pass-props?week=' + week),
+      cachedJSON('/api/team-model?week=' + week),
+    ]);
+    parlayRaw = tdRes.players || [];
+    parlayAllProps = { td: tdRes.players||[], rush: rushRes.players||[], rec: recRes.players||[], pass: passRes.players||[] };
+    parlayGames = teamRes.games || [];
     renderParlayBuilder();
   } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
@@ -1009,9 +1019,47 @@ function buildAutoParlay(legPool, n) {
 }
 
 function renderParlaySubtabs() {
-  const labels = { best3:'Best 3-Leg', best4:'Best 4-Leg', best5:'Best 5-Leg', manual:'Build Your Own' };
+  const labels = { best3:'Best 3-Leg', best4:'Best 4-Leg', best5:'Best 5-Leg', sgp:'Same Game', manual:'Build Your Own' };
   return `<div class="parlay-subtabs">${Object.entries(labels).map(([k,l]) =>
     `<div class="parlay-subtab${parlaySubtab===k?' on':''}" data-parlay-subtab="${k}">${l}</div>`).join('')}</div>`;
+}
+
+// SAME GAME PARLAY — pick one game, get its 3-5 best plays across ALL prop types (TD/Rush/
+// Rec/Pass), same All-Star+/Elite bar as Best Plays. Deliberately shows NO combined probability
+// the way the cross-game parlays do: those can legitimately multiply each leg's own hit
+// probability together because every leg is Anytime TD (the same bet type) from a DIFFERENT
+// game (so independence is a reasonable assumption). Neither holds here — TD probability and a
+// yardage projection aren't the same kind of number to begin with, and legs from the same game
+// are correlated by construction (if it turns into a shootout, every leg's real chances move
+// together), so a multiplied "combined %" would be more decoration than fact.
+function renderSameGameParlay() {
+  if (!parlayGames.length) return `<div class="empty"><h3>No games found</h3></div>`;
+  const gameOptions = parlayGames.map(g => `<option value="${g.gameId}"${parlaySgpGameId===g.gameId?' selected':''}>${g.awayTeam} @ ${g.homeTeam}</option>`).join('');
+  const pickerHTML = `<div class="filter-bar">
+    <select class="matchup-select" id="sgpGameSelect"><option value="">Select a game…</option>${gameOptions}</select>
+    <div class="pos-pills">${[3,4,5].map(n => `<div class="pos-pill${parlaySgpLegCount===n?' on':''}" data-sgp-legs="${n}">${n} legs</div>`).join('')}</div>
+  </div>`;
+
+  if (!parlaySgpGameId) return pickerHTML + `<div class="empty"><h3>Pick a game to generate a same-game parlay</h3></div>`;
+
+  const pool = buildAllPlaysPool(parlayAllProps).filter(p => p.gameId === parlaySgpGameId && p.badge && tierWeight(p.badge) >= 2);
+  pool.sort(sortPlays);
+  const legs = pool.slice(0, parlaySgpLegCount);
+  const game = parlayGames.find(g => g.gameId === parlaySgpGameId);
+  const gameLabel = game ? `${game.awayTeam} @ ${game.homeTeam}` : '';
+
+  if (!legs.length) return pickerHTML + `<div class="empty"><h3>No All-Star/Elite plays in this game yet</h3><div style="margin-top:6px;color:var(--t3);font-size:12px">Try a different game, or check back closer to kickoff as signals firm up.</div></div>`;
+
+  const legsHTML = legs.map((leg,i) => `<div class="parlay-leg" data-sgp-detail="${rowKey(leg)+'|'+leg.propType}" style="cursor:pointer">
+    <div class="parlay-leg-num">${i+1}</div>
+    <div class="parlay-leg-info"><div class="parlay-leg-name">${leg.name}${leg.position?` <span style="color:var(--t3);font-weight:400;font-size:11px">(${leg.position})</span>`:''}</div>
+      <div class="parlay-leg-detail">${leg.team} vs ${leg.opponent} — ${leg.typeLabel} · ${badgeText(leg.badge.label)}</div></div>
+    <div class="parlay-leg-prob">${leg.displayValue}</div></div>`).join('');
+
+  return pickerHTML + `<div class="parlay-card">
+    <div class="parlay-hdr"><div class="parlay-title">Same Game Parlay — ${gameLabel}</div></div>
+    ${legsHTML}</div>
+    <div class="parlay-disclaimer">All legs come from this one game, so they are NOT independent — no combined probability is shown here. Mixing Anytime TD odds with yardage projections into one number isn't meaningful to begin with, and same-game legs move together anyway (e.g. this turning into a shootout lifts every leg's real chances at once). Use each leg's own badge and signals to weigh conviction instead of a single fabricated percentage.</div>`;
 }
 
 function renderParlayCard(title, legs, combinedProb) {
@@ -1037,10 +1085,31 @@ function renderParlayBuilder() {
   if (parlaySubtab === 'best3') { const {legs,combinedProb} = buildAutoParlay(legPool,3); document.getElementById('content').innerHTML = subtabsHTML + renderParlayCard('Best 3-Leg TD Parlay', legs, combinedProb); }
   else if (parlaySubtab === 'best4') { const {legs,combinedProb} = buildAutoParlay(legPool,4); document.getElementById('content').innerHTML = subtabsHTML + renderParlayCard('Best 4-Leg TD Parlay', legs, combinedProb); }
   else if (parlaySubtab === 'best5') { const {legs,combinedProb} = buildAutoParlay(legPool,5); document.getElementById('content').innerHTML = subtabsHTML + renderParlayCard('Best 5-Leg TD Parlay', legs, combinedProb); }
+  else if (parlaySubtab === 'sgp') { document.getElementById('content').innerHTML = subtabsHTML + renderSameGameParlay(); }
   else { document.getElementById('content').innerHTML = subtabsHTML + renderManualParlayBuilder(legPool); }
 
   attachParlaySubtabHandlers();
   if (parlaySubtab === 'manual') attachManualParlayHandlers(legPool);
+  if (parlaySubtab === 'sgp') attachSgpHandlers();
+}
+
+function attachSgpHandlers() {
+  const sel = document.getElementById('sgpGameSelect');
+  if (sel) sel.addEventListener('change', () => { parlaySgpGameId = sel.value || null; renderParlayBuilder(); });
+  document.querySelectorAll('[data-sgp-legs]').forEach(el => el.addEventListener('click', () => {
+    parlaySgpLegCount = Number(el.dataset.sgpLegs);
+    renderParlayBuilder();
+  }));
+  document.querySelectorAll('[data-sgp-detail]').forEach(el => el.addEventListener('click', () => {
+    const pool = buildAllPlaysPool(parlayAllProps).filter(p => p.gameId === parlaySgpGameId);
+    const leg = pool.find(p => (rowKey(p)+'|'+p.propType) === el.dataset.sgpDetail);
+    if (!leg) return;
+    const header = `<div class="dd-name">${leg.name}${leg.position?` <span style="color:var(--t3);font-weight:400;font-size:13px">(${leg.position})</span>`:''}</div><div class="dd-sub">${leg.team} vs ${leg.opponent}</div>`;
+    const body = `<div class="detail-grid"><div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(leg.signals)}</div>
+      <div><div class="detail-block-hdr">Key Stats</div>${leg.detailStats.map(([l,v])=>`<div class="detail-sig-row"><span>${l}</span><span style="color:var(--teal);font-family:var(--mono)">${v}</span></div>`).join('')}
+      <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${leg.ci?.color||'var(--t3)'};font-family:var(--mono)">${leg.ci?.label||'—'}</span></div></div></div>`;
+    openDrawer(header, body);
+  }));
 }
 
 function attachParlaySubtabHandlers() {
