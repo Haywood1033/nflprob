@@ -517,16 +517,30 @@ function buildPredictionsSnapshot(teamData, props) {
   addPlayerProps(props.pass, 'pass_yds', 'projected');
   return preds;
 }
+// Returns { ok, skipped, error } so callers that care (the manual "snapshot now" button) can
+// show the real outcome — fetch() alone only rejects on network failure, not on a 4xx/5xx
+// response, so without checking res.ok a failed DB write looked identical to a successful one.
 async function maybeSnapshotWeek(teamData, props) {
-  if (!realCurrentWeek || Number(teamData.week) !== Number(realCurrentWeek)) return;
+  if (!realCurrentWeek || Number(teamData.week) !== Number(realCurrentWeek)) return { skipped: true, reason: 'not the current week' };
   const key = teamData.year + '-W' + String(teamData.week).padStart(2, '0');
-  if (_snapshotAttempted.has(key)) return;
+  if (_snapshotAttempted.has(key)) return { skipped: true, reason: 'already attempted this page load' };
   _snapshotAttempted.add(key);
+  const predictions = buildPredictionsSnapshot(teamData, props);
+  if (!predictions.length) return { skipped: true, reason: 'no predictions to save' };
   try {
-    const predictions = buildPredictionsSnapshot(teamData, props);
-    if (!predictions.length) return;
-    await fetch('/api/history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', week: key, predictions, teamModel: teamData }) });
-  } catch (e) { /* best-effort — accuracy tracking should never block or break the UI */ }
+    const res = await fetch('/api/history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', week: key, predictions, teamModel: teamData }) });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || data?.error) {
+      console.warn('Accuracy snapshot failed:', data?.error || res.status);
+      _snapshotAttempted.delete(key); // let a later attempt (e.g. revisiting Slate, or the manual button) retry instead of being silently blocked for the rest of this page load
+      return { ok: false, error: data?.error || ('HTTP ' + res.status) };
+    }
+    return { ok: true, skipped: !!data.skipped, week: key };
+  } catch (e) {
+    console.warn('Accuracy snapshot request failed:', e.message);
+    _snapshotAttempted.delete(key);
+    return { ok: false, error: e.message };
+  }
 }
 
 function espnLogoUrl(abbr) { return abbr ? `https://a.espncdn.com/i/teamlogos/nfl/500/${abbr.toLowerCase()}.png` : ''; }
@@ -1314,8 +1328,10 @@ function attachAccuracyHandlers() {
         cachedJSON('/api/rush-props?week=' + week), cachedJSON('/api/rec-props?week=' + week),
         cachedJSON('/api/pass-props?week=' + week),
       ]);
-      await maybeSnapshotWeek(teamRes, { td: tdRes.players || [], rush: rushRes.players || [], rec: recRes.players || [], pass: passRes.players || [] });
-      snapBtn.textContent = 'done (saved, or already was)';
+      const result = await maybeSnapshotWeek(teamRes, { td: tdRes.players || [], rush: rushRes.players || [], rec: recRes.players || [], pass: passRes.players || [] });
+      if (result.ok === false) { snapBtn.textContent = 'failed: ' + result.error; return; }
+      if (result.skipped) { snapBtn.textContent = 'skipped (' + result.reason + ')'; return; }
+      loadAccuracy(); // reloads the whole tab, which re-fetches /api/history — the new week will now show up in Tracked Weeks instead of the page looking unchanged
     } catch (e) { snapBtn.textContent = 'failed: ' + e.message; }
   });
 }
