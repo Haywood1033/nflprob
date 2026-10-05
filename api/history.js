@@ -1,31 +1,7 @@
 // api/history.js — uses pg (node-postgres) directly, mirrors HR engine's history.js
 // Works with Supabase's Postgres connection string as-is (DATABASE_URL from Supabase settings).
-const { Pool } = require('pg');
+const { query, parseWeekKey, safeJsonParse, ENSURE_TABLE_SQL } = require('../lib/db.js');
 const { gradeWeekPredictions, summarizeGraded } = require('../lib/grading.js');
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
-
-async function query(text, params) {
-  const client = await pool.connect();
-  try { return await client.query(text, params); }
-  finally { client.release(); }
-}
-
-// week is stored as "2026-W03" (schema.prisma's own documented format) — split back into the
-// plain year/week numbers the nflverse-backed grading functions key off of.
-function parseWeekKey(weekKey) {
-  const m = String(weekKey).match(/^(\d{4})-W(\d{1,2})$/);
-  if (!m) return null;
-  return { year: Number(m[1]), week: Number(m[2]) };
-}
-
-// `summary` is a TEXT column (predictions/team_model/signal_lock are JSONB, which pg parses
-// back into objects automatically — TEXT doesn't), so it comes back from the DB as a raw
-// JSON string and needs parsing on the way out.
-function safeJsonParse(text) {
-  if (!text) return null;
-  try { return JSON.parse(text); } catch { return null; }
-}
 
 // Combines every already-graded prediction across the stored weeks into one calibration
 // summary — this is what the Accuracy tab's top-line numbers come from. Scoped to graded
@@ -45,19 +21,7 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    await query(`
-      CREATE TABLE IF NOT EXISTS weekly_predictions (
-        id            SERIAL PRIMARY KEY,
-        week          VARCHAR(10) UNIQUE NOT NULL,
-        predictions   JSONB,
-        team_model    JSONB,
-        signal_lock   JSONB,
-        results_added BOOLEAN DEFAULT FALSE,
-        summary       TEXT,
-        saved_at      TIMESTAMP DEFAULT NOW(),
-        fetched_at    TIMESTAMP
-      )
-    `);
+    await query(ENSURE_TABLE_SQL);
 
     if (req.method === 'GET') {
       const { rows } = await query(`SELECT * FROM weekly_predictions ORDER BY week DESC LIMIT 30`);
