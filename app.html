@@ -1240,7 +1240,7 @@ function attachManualParlayHandlers(legPool) {
 // server-side (exact knapsack, not a heuristic — see lib/dfs-optimizer.js). Single-game
 // Showdown only; a multi-game Classic slate has a different roster shape entirely.
 
-const dfsState = { players: [], awayAbbr: null, homeAbbr: null, year: null, locked: new Set(), captainLock: null, excluded: new Set(), lastResult: null, lineupCount: 20 };
+const dfsState = { players: [], awayAbbr: null, homeAbbr: null, year: null, locked: new Set(), captainLock: null, excluded: new Set(), lastResult: null, lineupCount: 20, projecting: false };
 
 function dfsSplitCSVLine(line) {
   const out = []; let cur = ''; let inQuotes = false;
@@ -1339,6 +1339,32 @@ function dfsIngestRows(rows) {
   }));
   dfsState.awayAbbr = m[1]; dfsState.homeAbbr = m[2]; dfsState.year = m[5];
   dfsState.locked = new Set(); dfsState.captainLock = null; dfsState.excluded = new Set(); dfsState.lastResult = null;
+  dfsFetchProjections(); // renders the table itself (loading state first, then with Proj Pts filled in)
+}
+
+// Runs the same model the "Build Lineup(s)" step uses, but just to populate a "Proj Pts"
+// column on the upload table BEFORE the user has decided any locks/excludes — so DK's own
+// average and this app's actual projection are both visible while picking who to lock, not
+// only after a lineup's already been built. Fires once right after upload and re-renders the
+// table when it resolves; failure is non-fatal (the table stays usable with DK's own Avg Pts
+// column, just without this one filled in).
+async function dfsFetchProjections() {
+  if (!dfsState.players.length) return;
+  dfsState.projecting = true;
+  renderDfsPlayerTable();
+  try {
+    const payload = { players: dfsState.players, awayAbbr: dfsState.awayAbbr, homeAbbr: dfsState.homeAbbr, year: dfsState.year, lineupCount: 1 };
+    const res = await fetch('/api/lineup-optimizer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (Array.isArray(data.players)) {
+      const byId = {}; data.players.forEach(p => { byId[p.id] = p; });
+      dfsState.players = dfsState.players.map(p => {
+        const proj = byId[p.id];
+        return proj ? { ...p, projPoints: proj.points, projModeled: proj.modeled } : p;
+      });
+    }
+  } catch (e) { /* non-fatal — see comment above */ }
+  dfsState.projecting = false;
   renderDfsPlayerTable();
 }
 
@@ -1354,12 +1380,18 @@ function renderDfsPlayerTable() {
     const locked = dfsState.locked.has(p.id);
     const isCaptain = dfsState.captainLock === p.id;
     const excluded = dfsState.excluded.has(p.id);
+    const projCell = dfsState.projecting
+      ? `<span style="color:var(--t3)">…</span>`
+      : p.projPoints != null
+        ? `<span style="color:var(--teal);font-weight:600">${p.projPoints.toFixed(1)}</span> <span style="font-size:9px;font-family:var(--mono);color:${p.projModeled?'var(--teal)':'var(--t3)'}">${p.projModeled?'MODEL':'EST'}</span>`
+        : `<span style="color:var(--t3)">—</span>`;
     return `<tr class="${excluded ? 'dfs-row-excluded' : ''}">
       <td class="td-pos">${p.position}</td>
       <td class="td-name">${p.name}</td>
       <td class="td-team">${p.teamAbbrev}</td>
       <td class="td-prob num-col">$${p.salary.toLocaleString()}</td>
       <td class="td-touch num-col">${p.avgPointsPerGame}</td>
+      <td class="td-touch num-col">${projCell}</td>
       <td>${p.status ? `<span style="color:var(--red);font-family:var(--mono);font-size:10px">${p.status}</span>` : ''}</td>
       <td><div style="display:flex;gap:4px">
         <span class="dfs-ctrl${locked ? ' on' : ''}" data-dfs-lock="${p.id}" title="Must be in the final lineup">LOCK</span>
@@ -1376,8 +1408,9 @@ function renderDfsPlayerTable() {
       <span class="filter-count">${dfsState.players.length} players loaded</span>
       <span class="dfs-link-btn" id="dfsResetLink" style="margin-left:14px">upload a different file</span>
     </div>
-    <div style="font-size:10px;font-family:var(--mono);color:var(--t3);margin-bottom:12px">LOCK = must be in the lineup &nbsp;·&nbsp; CPT = force as Captain (implies LOCK) &nbsp;·&nbsp; OUT = exclude entirely</div>
-    <div class="table-scroll"><table class="td-table"><thead><tr><th>Pos</th><th>Player</th><th>Team</th><th class="num-col">Salary</th><th class="num-col">Avg Pts</th><th>Status</th><th>Controls</th></tr></thead>
+    <div style="font-size:10px;font-family:var(--mono);color:var(--t3);margin-bottom:4px">LOCK = must be in the lineup &nbsp;·&nbsp; CPT = force as Captain (implies LOCK) &nbsp;·&nbsp; OUT = exclude entirely</div>
+    <div style="font-size:10px;font-family:var(--mono);color:var(--t3);margin-bottom:12px">Avg Pts = DK's season average (from the uploaded file) &nbsp;·&nbsp; Proj Pts = this app's own model for THIS matchup specifically &nbsp;·&nbsp; MODEL = real pass/rush/rec projection, EST = recency-average fallback (DST/K, or no usage data found)</div>
+    <div class="table-scroll"><table class="td-table"><thead><tr><th>Pos</th><th>Player</th><th>Team</th><th class="num-col">Salary</th><th class="num-col">Avg Pts</th><th class="num-col">Proj Pts</th><th>Status</th><th>Controls</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
     <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
       <span style="font-size:11px;color:var(--t3)">Lineups to generate</span>
