@@ -26,9 +26,12 @@ function topRushersForTeamFallback(playerRows, teamEspnAbbr, throughWeek, count 
     .map(([name, rows]) => {
       const recent = recentGames(rows, throughWeek, lastN);
       const carries = recent.reduce((s, r) => s + (parseFloat(r.carries) || 0), 0);
-      return { name, histTeam: team, volume: carries };
+      const lastWeekPlayed = recent.length ? Math.max(...recent.map(r => Number(r.week))) : -1;
+      return { name, histTeam: team, volume: carries, lastWeekPlayed };
     })
-    .sort((a, b) => b.volume - a.volume).slice(0, count);
+    // Who played most recently wins first — see lib/roster-pool.js's poolFromRoster for the
+    // full reasoning.
+    .sort((a, b) => b.lastWeekPlayed - a.lastWeekPlayed || b.volume - a.volume).slice(0, count);
 }
 
 module.exports = async function handler(req, res) {

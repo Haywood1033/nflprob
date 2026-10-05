@@ -27,9 +27,13 @@ function starterQbForTeamFallback(playerRows, teamEspnAbbr, throughWeek) {
     .map(([name, rows]) => {
       const recent = recentGames(rows, throughWeek, lastN);
       const attempts = recent.reduce((s, r) => s + (parseFloat(r.attempts) || 0), 0);
-      return { name, histTeam: team, volume: attempts };
+      const lastWeekPlayed = recent.length ? Math.max(...recent.map(r => Number(r.week))) : -1;
+      return { name, histTeam: team, volume: attempts, lastWeekPlayed };
     })
-    .sort((a, b) => b.volume - a.volume);
+    // Who played most recently wins first — see lib/roster-pool.js's poolFromRoster for the
+    // full reasoning (a QB benched after week 2 shouldn't keep outranking the guy who started
+    // week 3 just because 2 games' attempts add up to more than 1 game's worth).
+    .sort((a, b) => b.lastWeekPlayed - a.lastWeekPlayed || b.volume - a.volume);
 }
 
 module.exports = async function handler(req, res) {

@@ -27,9 +27,12 @@ function topReceiversForTeamFallback(playerRows, teamEspnAbbr, throughWeek, coun
     .map(([name, rows]) => {
       const recent = recentGames(rows, throughWeek, lastN);
       const targets = recent.reduce((s, r) => s + (parseFloat(r.targets) || 0), 0);
-      return { name, histTeam: team, volume: targets };
+      const lastWeekPlayed = recent.length ? Math.max(...recent.map(r => Number(r.week))) : -1;
+      return { name, histTeam: team, volume: targets, lastWeekPlayed };
     })
-    .sort((a, b) => b.volume - a.volume).slice(0, count);
+    // Who played most recently wins first — see lib/roster-pool.js's poolFromRoster for the
+    // full reasoning.
+    .sort((a, b) => b.lastWeekPlayed - a.lastWeekPlayed || b.volume - a.volume).slice(0, count);
 }
 
 module.exports = async function handler(req, res) {
