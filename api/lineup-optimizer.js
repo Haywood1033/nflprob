@@ -21,9 +21,11 @@ module.exports = async function handler(req, res) {
     const projectionData = await buildDfsProjections({ uploadedPlayers: players, year: Number(year), awayAbbr, homeAbbr });
 
     const pool = projectionData.players.filter(p => p.points > 0);
-    // Capped at 10: each additional lineup re-runs the knapsack DP for its candidate captain,
-    // so this bounds worst-case cost to roughly 2x a single-lineup request, not unbounded.
-    const count = Math.min(Math.max(Number(lineupCount) || 1, 1), 10);
+    // Capped at 20 to match standard large-field GPP max-entry limits. Each additional lineup
+    // only re-runs the knapsack DP once for its candidate captain (a few thousand ops on a
+    // ~30-40 player Showdown pool), so even 20 stays well within the request budget — the
+    // expensive part (ranking every possible captain) happens once regardless of count.
+    const count = Math.min(Math.max(Number(lineupCount) || 1, 1), 20);
     const lineups = optimizeLineups(pool, {
       count,
       maxExposure: Number(maxExposure) || 0.6,
