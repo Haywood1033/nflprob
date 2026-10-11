@@ -32,6 +32,7 @@ module.exports = async function handler(req, res) {
       lockedIds: Array.isArray(lockedIds) ? lockedIds : [],
       captainLockId: captainLockId || null,
       excludedIds: Array.isArray(excludedIds) ? excludedIds : [],
+      model: projectionData.model,
     });
 
     if (!lineups.length) {
