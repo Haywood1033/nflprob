@@ -1511,8 +1511,14 @@ function renderDfsResults(data) {
       ${body}
     </div>`;
   };
+  const tierBadge = (lineup) => {
+    if (!lineup.tier || lineups.length <= 1) return '';
+    return lineup.tier === 'primary'
+      ? ` <span style="font-size:9px;font-weight:700;color:var(--teal);border:0.5px solid rgba(45,212,191,.4);border-radius:4px;padding:1px 5px;vertical-align:middle" title="Built around a Captain theory projecting within 15% of the single best lineup">CORE PLAY</span>`
+      : ` <span style="font-size:9px;font-weight:700;color:var(--t3);border:0.5px solid var(--bd2);border-radius:4px;padding:1px 5px;vertical-align:middle" title="Fills out your entry count beyond the highest-conviction Captain theories">FILL ENTRY</span>`;
+  };
   const lineupCardHTML = (lineup, idx) => `<div class="parlay-card">
-    <div class="parlay-hdr"><div class="parlay-title">${lineups.length>1?`Lineup ${idx+1} of ${lineups.length}`:'Optimal Lineup'} — ${away} @ ${home}, Week ${week}</div>
+    <div class="parlay-hdr"><div class="parlay-title">${lineups.length>1?`Lineup ${idx+1} of ${lineups.length}`:'Optimal Lineup'}${tierBadge(lineup)}<div style="font-size:11px;color:var(--t3);font-weight:400;margin-top:2px">${away} @ ${home}, Week ${week}</div></div>
       <div class="parlay-combined"><div class="parlay-combined-val">${lineup.totalPoints.toFixed(1)}</div><div class="parlay-combined-lbl">Proj. Points</div></div></div>
     ${legHTML(lineup.captain, true, lineup)}
     ${lineup.flex.map(p => legHTML(p, false, lineup)).join('')}
@@ -1521,9 +1527,14 @@ function renderDfsResults(data) {
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--t3)"><span>Salary used</span><span>$${lineup.totalSalary.toLocaleString()} / $50,000</span></div>
       <div class="dfs-cap-bar"><div class="dfs-cap-fill" style="width:${(lineup.totalSalary / 50000 * 100).toFixed(1)}%"></div></div>
     </div></div>`;
+  const primaryCount = lineups.filter(l => l.tier === 'primary').length;
+  const fillCount = lineups.filter(l => l.tier === 'fill').length;
+  const shortfallNote = dfsState.lineupCount && lineups.length < dfsState.lineupCount
+    ? ` Only ${lineups.length} distinct, salary-cap-legal lineup${lineups.length===1?'':'s'} could be built from this player pool — showing all of them rather than padding the set with duplicates.`
+    : '';
   const lineupHTML = lineups.map(lineupCardHTML).join('') +
     `<div class="parlay-disclaimer">Model projects ${away} ${model.awayImplied} – ${home} ${model.homeImplied} (total ${model.total}${model.shootoutSignal ? ', shootout range' : ''}). ${lineups.length>1
-      ? `Lineups are built around a small set of Captain "theories" — only ones projecting within 15% of the single best lineup — rather than spreading across every possible Captain, and each theory's own correlated Core (see below) carries into its variations. A cap on how often any one FLEX player repeats across the set keeps those variations from just recycling the same complementary pieces — a hedge against any single projection being wrong, not a guarantee any individual build wins.`
+      ? `${primaryCount} CORE PLAY lineup${primaryCount===1?'':'s'} are built around Captain "theories" projecting within 15% of the single best lineup, each with its own correlated Core (see below) carried into its variations.${fillCount ? ` The remaining ${fillCount} FILL ENTRY lineup${fillCount===1?'':'s'} use the rest of your requested entry count — lower-conviction builds, still salary-legal and still correlation-aware, rather than leaving tournament entries unused.` : ''} A cap on how often any one FLEX player repeats keeps the set from just recycling the same complementary pieces — a hedge against any single projection being wrong, not a guarantee any individual build wins.${shortfallNote}`
       : `This maximizes expected points under your locks — it does not account for who else in your contest is rostering the same players.`}</div>`;
 
   const allSorted = [...players].sort((a, b) => b.points - a.points);
