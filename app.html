@@ -236,7 +236,9 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .parlay-leg-detail{font-size:11px;color:var(--t3);margin-top:1px}
 .parlay-leg-prob{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--teal);text-align:right;min-width:60px}
 .parlay-leg-remove{color:var(--red);cursor:pointer;font-size:16px;padding:0 4px}
-.parlay-disclaimer{font-size:11px;color:var(--t3);padding:14px 4px 4px;line-height:1.5}
+.parlay-disclaimer{font-size:11.5px;color:var(--t3);padding:14px 4px 4px;line-height:1.6;max-width:720px}
+.parlay-disclaimer-line{margin-top:6px}
+.parlay-disclaimer-line:first-child{margin-top:0}
 .parlay-game-picker{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
 .parlay-game-row{background:var(--bg2);border:0.5px solid var(--bd);border-radius:10px;padding:12px 16px}
 .parlay-game-row.selected{border-color:rgba(45,212,191,.32)}
@@ -1532,10 +1534,16 @@ function renderDfsResults(data) {
   const shortfallNote = dfsState.lineupCount && lineups.length < dfsState.lineupCount
     ? ` Only ${lineups.length} distinct, salary-cap-legal lineup${lineups.length===1?'':'s'} could be built from this player pool — showing all of them rather than padding the set with duplicates.`
     : '';
+  const tierSummaryHTML = lineups.length>1
+    ? `<div class="parlay-disclaimer-line"><b style="color:var(--teal)">${primaryCount} CORE PLAY</b>${fillCount?` + <b style="color:var(--t2)">${fillCount} FILL ENTRY</b>`:''} — Core plays are Captain theories within 15% of the top lineup, each with a correlated partner forced into its variations (see Core on each card). ${fillCount?'Fill entries deepen those same Captains first, normally staying within 65% of the top value, before reaching for a weaker one.':''}</div>
+       <div class="parlay-disclaimer-line">A cap on how often any one FLEX player repeats keeps the set from recycling the same complementary pieces — a hedge against any single projection being wrong, not a guarantee any individual build wins.</div>`
+    : `<div class="parlay-disclaimer-line">This maximizes expected points under your locks — it does not account for who else in your contest is rostering the same players.</div>`;
   const lineupHTML = lineups.map(lineupCardHTML).join('') +
-    `<div class="parlay-disclaimer">Model projects ${away} ${model.awayImplied} – ${home} ${model.homeImplied} (total ${model.total}${model.shootoutSignal ? ', shootout range' : ''}). ${lineups.length>1
-      ? `${primaryCount} CORE PLAY lineup${primaryCount===1?'':'s'} are built around Captain "theories" projecting within 15% of the single best lineup, each with its own correlated Core (see below) carried into its variations.${fillCount ? ` The remaining ${fillCount} FILL ENTRY lineup${fillCount===1?'':'s'} use the rest of your requested entry count — still salary-legal and correlation-aware, drawn first from deeper variations of the same proven Captains before reaching for a weaker one, and normally held to at least 65% of the top lineup's value rather than leaving tournament entries unused.` : ''} A cap on how often any one FLEX player repeats keeps the set from just recycling the same complementary pieces — a hedge against any single projection being wrong, not a guarantee any individual build wins.${shortfallNote}`
-      : `This maximizes expected points under your locks — it does not account for who else in your contest is rostering the same players.`}</div>`;
+    `<div class="parlay-disclaimer">
+      <div class="parlay-disclaimer-line">Model projects ${away} ${model.awayImplied} – ${home} ${model.homeImplied} (total ${model.total}${model.shootoutSignal ? ', shootout range' : ''}).</div>
+      ${tierSummaryHTML}
+      ${shortfallNote ? `<div class="parlay-disclaimer-line">${shortfallNote.trim()}</div>` : ''}
+    </div>`;
 
   const allSorted = [...players].sort((a, b) => b.points - a.points);
   const tableRows = allSorted.map(p => `<tr class="expand-row" data-dfs-detail="${p.id}">
