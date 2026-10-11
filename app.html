@@ -1374,8 +1374,7 @@ function dfsResetUpload() {
 }
 
 function renderDfsPlayerTable() {
-  const byPos = { QB: 1, RB: 2, WR: 3, TE: 4, K: 5, DST: 6 };
-  const sorted = [...dfsState.players].sort((a, b) => (byPos[a.position] || 9) - (byPos[b.position] || 9) || b.salary - a.salary);
+  const sorted = [...dfsState.players].sort((a, b) => b.salary - a.salary);
   const rows = sorted.map(p => {
     const locked = dfsState.locked.has(p.id);
     const isCaptain = dfsState.captainLock === p.id;
