@@ -48,6 +48,9 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .empty h3{font-size:15px;font-weight:600;color:var(--t2);margin-bottom:8px}
 .badge-shootout{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--mono);font-weight:700;padding:3px 7px;border-radius:4px;background:rgba(240,169,61,.1);color:var(--amber);border:1px solid rgba(240,169,61,.22)}
 .badge-lowscore{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--mono);font-weight:700;padding:3px 7px;border-radius:4px;background:rgba(96,165,250,.1);color:var(--blue);border:1px solid rgba(96,165,250,.22)}
+.badge-strongline{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--mono);font-weight:700;padding:3px 7px;border-radius:4px;background:rgba(45,212,191,.1);color:var(--teal);border:1px solid rgba(45,212,191,.28)}
+.badge-lean{display:inline-flex;align-items:center;font-size:10px;font-family:var(--mono);font-weight:700;padding:3px 7px;border-radius:4px;color:var(--t2);border:1px solid var(--bd2)}
+.badge-tossup{display:inline-flex;align-items:center;font-size:10px;font-family:var(--mono);font-weight:600;padding:3px 7px;border-radius:4px;color:var(--t3);border:1px solid var(--bd)}
 .td-table{width:100%;border-collapse:collapse;font-size:13px}
 .td-table thead th{text-align:left;padding:10px 12px;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.07em;text-transform:uppercase;border-bottom:0.5px solid var(--bd);background:var(--bg2)}
 .td-table tbody td{padding:11px 12px;border-bottom:0.5px solid var(--bd)}
@@ -672,6 +675,21 @@ function gameSlotMap(games) {
   (games||[]).forEach(g => { map[g.gameId] = kickoffSlot(g.date); });
   return map;
 }
+// Mirrors lib/grading.js's mlLeanTier() exactly (same thresholds) so the "Strong Lean" flag
+// shown live on the Slate tab means the same thing the Accuracy tab grades it as — the model's
+// own stated confidence on the moneyline, not a separate live-only classification.
+function mlLeanTier(homeWinProb) {
+  if (homeWinProb == null) return null;
+  const edge = Math.abs(homeWinProb - 50);
+  if (edge >= 15) return 'strong';
+  if (edge >= 7) return 'lean';
+  return 'tossup';
+}
+const ML_LEAN_BADGE = {
+  strong: `<span class="badge-strongline">${icon('bolt')} Strong Lean</span>`,
+  lean: `<span class="badge-lean">Lean</span>`,
+  tossup: `<span class="badge-tossup">Toss-up</span>`,
+};
 function renderTeamModel(d, props) {
   setStatus(d.cached);
   const games = sortGamesChrono(d.games || []);
@@ -695,9 +713,10 @@ function renderTeamModel(d, props) {
     const awayFav = m.awayWinProb != null && m.homeWinProb != null && m.awayWinProb > m.homeWinProb;
     const homeFav = m.awayWinProb != null && m.homeWinProb != null && m.homeWinProb > m.awayWinProb;
     const favTag = fav => fav ? `<div class="slate-fav-tag">${icon('check')} Projected Winner</div>` : '';
+    const mlTier = mlLeanTier(m.homeWinProb);
     return `<div class="slate-card${isShootout?' shootout':''}" data-slate-idx="${i}">
       <div class="slate-hdr"><div class="slate-weather">${weatherText?icon('sun','color:var(--t3)')+' '+weatherText:''}</div>
-      <div>${isShootout?`<span class="badge-shootout">${icon('flame')} Shootout</span>`:m.lowScoringSignal?`<span class="badge-lowscore">${icon('shield')} Low Scoring</span>`:''}</div></div>
+      <div style="display:flex;gap:6px">${isShootout?`<span class="badge-shootout">${icon('flame')} Shootout</span>`:m.lowScoringSignal?`<span class="badge-lowscore">${icon('shield')} Low Scoring</span>`:''}${mlTier?ML_LEAN_BADGE[mlTier]:''}</div></div>
       <div class="slate-matchup"><div class="slate-team${awayFav?' favored':''}"><div class="slate-logo-wrap"><img class="slate-logo" src="${espnLogoUrl(g.awayAbbr)}" alt="${g.awayTeam}" onerror="this.parentElement.style.visibility='hidden'"></div>
       <div class="slate-team-name">${g.awayTeam}</div><div class="slate-team-implied">${m.awayImplied??'—'}</div>${favTag(awayFav)}</div>
       <div class="slate-vs">@</div><div class="slate-team${homeFav?' favored':''}"><div class="slate-logo-wrap"><img class="slate-logo" src="${espnLogoUrl(g.homeAbbr)}" alt="${g.homeTeam}" onerror="this.parentElement.style.visibility='hidden'"></div>
@@ -730,7 +749,9 @@ function openSlateDrawer(idx) {
   const {g,m,homeTd,awayTd,allProps,weatherText} = sg; const isShootout = m.shootoutSignal;
   const top3Row = p => `<div class="slate-target-row"><span class="slate-target-val">${p.name} <span style="color:var(--t3)">(${p.position||p.team})</span></span><span class="slate-target-prob">${p.prob}%</span></div>`;
   const propRow = p => `<div class="slate-target-row"><span class="slate-target-val">${p.name} — ${p.statLabel}</span><span class="slate-target-prob">${p.value}</span></div>`;
-  const leanBits = [weatherText?icon('sun')+' '+weatherText:'', isShootout?icon('flame')+' Shootout':m.lowScoringSignal?icon('shield')+' Low Scoring':''].filter(Boolean);
+  const mlTier = mlLeanTier(m.homeWinProb);
+  const mlLeanText = { strong: icon('bolt')+' Strong Lean', lean: 'Lean', tossup: 'Toss-up' };
+  const leanBits = [weatherText?icon('sun')+' '+weatherText:'', isShootout?icon('flame')+' Shootout':m.lowScoringSignal?icon('shield')+' Low Scoring':'', mlTier?mlLeanText[mlTier]:''].filter(Boolean);
   const header = `<div class="dd-name">${g.awayTeam} @ ${g.homeTeam}</div><div class="dd-sub" style="display:flex;gap:10px;align-items:center">${leanBits.join('<span style="color:var(--t3)">·</span>')}</div>`;
   const awayFav = m.awayWinProb != null && m.homeWinProb != null && m.awayWinProb > m.homeWinProb;
   const homeFav = m.awayWinProb != null && m.homeWinProb != null && m.homeWinProb > m.awayWinProb;
