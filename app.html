@@ -1443,7 +1443,7 @@ function renderDfsPlayerTable() {
     <tbody>${rows}</tbody></table></div>
     <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
       <span style="font-size:11px;color:var(--t3)">Lineups to generate</span>
-      <div class="pos-pills">${[1,5,10,20].map(n => `<div class="pos-pill${dfsState.lineupCount===n?' on':''}" data-dfs-count="${n}">${n}</div>`).join('')}</div>
+      <div class="pos-pills">${[1,5,10,15,20].map(n => `<div class="pos-pill${dfsState.lineupCount===n?' on':''}" data-dfs-count="${n}">${n}</div>`).join('')}</div>
     </div>
     <div style="margin-top:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
       <div class="dfs-build-btn${overLocked ? ' disabled' : ''}" id="dfsBuildBtn">${icon('bolt')} Build ${dfsState.lineupCount>1?dfsState.lineupCount+' Lineups':'Optimal Lineup'}</div>
