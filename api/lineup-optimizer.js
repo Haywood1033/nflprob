@@ -37,7 +37,7 @@ module.exports = async function handler(req, res) {
 
     if (!lineups.length) {
       return res.status(200).json({
-        error: 'No valid lineup fits the salary cap with these locks/excludes — try unlocking a player or freeing up salary',
+        error: 'No valid lineup fits the salary cap with these locks/excludes, or every remaining build would be drawn from a single team (DK Showdown requires both teams represented) — try unlocking a player, freeing up salary, or un-excluding someone from the other team',
         week: projectionData.week, year: projectionData.year, model: projectionData.model,
         players: projectionData.players,
       });
