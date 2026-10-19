@@ -1500,10 +1500,20 @@ function renderDfsResults(data) {
   const { lineups, model, players, away, home, week } = data;
   // Exposure across the generated set — shown per-leg when there's more than one lineup, so
   // it's visible at a glance which plays are the "core" (high exposure) vs. differentiators.
-  const exposureCount = {};
+  // Captain and FLEX are tracked separately (not just combined) so the summary table below can
+  // answer "how often is this guy the Captain specifically" vs. "how often is he rostered at
+  // all" — those are different questions for bankroll/ownership planning.
+  const exposureCount = {}, cptCount = {}, flexCount = {};
+  const playerMeta = {};
   lineups.forEach(l => {
     exposureCount[l.captain.id] = (exposureCount[l.captain.id] || 0) + 1;
-    l.flex.forEach(p => { exposureCount[p.id] = (exposureCount[p.id] || 0) + 1; });
+    cptCount[l.captain.id] = (cptCount[l.captain.id] || 0) + 1;
+    playerMeta[l.captain.id] = l.captain;
+    l.flex.forEach(p => {
+      exposureCount[p.id] = (exposureCount[p.id] || 0) + 1;
+      flexCount[p.id] = (flexCount[p.id] || 0) + 1;
+      playerMeta[p.id] = p;
+    });
   });
   const legHTML = (p, isCaptain, lineup) => {
     const coreEntry = lineup.core && lineup.core.players.find(c => c.id === p.id && c.inLineup);
@@ -1566,6 +1576,27 @@ function renderDfsResults(data) {
       ${shortfallNote ? `<div class="parlay-disclaimer-line">${shortfallNote.trim()}</div>` : ''}
     </div>`;
 
+  // Exposure summary — a single snapshot of the whole generated set, separate from the
+  // per-leg "in X/20 lineups" text on each card (which you'd have to page through every card
+  // to add up yourself). CPT% and overall-usage% are tracked separately since they answer
+  // different questions: "how often is this guy worth paying up for as Captain" vs. "how often
+  // is he in the build at all" (CPT + FLEX combined).
+  const exposureHTML = lineups.length > 1 ? (() => {
+    const ids = Object.keys(exposureCount).sort((a, b) => exposureCount[b] - exposureCount[a]);
+    const rows = ids.map(id => {
+      const p = playerMeta[id];
+      const cpt = cptCount[id] || 0, flex = flexCount[id] || 0, usedPct = +((cpt + flex) / lineups.length * 100).toFixed(0);
+      return `<tr>
+        <td class="td-pos">${p.pos}</td><td class="td-name">${p.name}</td><td class="td-team">${p.team}</td>
+        <td class="td-touch num-col">${cpt ? `${cpt}/${lineups.length} <span style="color:var(--t3)">(${(cpt/lineups.length*100).toFixed(0)}%)</span>` : '—'}</td>
+        <td class="td-touch num-col">${flex ? `${flex}/${lineups.length} <span style="color:var(--t3)">(${(flex/lineups.length*100).toFixed(0)}%)</span>` : '—'}</td>
+        <td class="td-prob num-col" style="color:var(--teal);font-weight:600">${usedPct}%</td></tr>`;
+    }).join('');
+    return `<div style="margin:18px 0 8px;font-size:11px;font-family:var(--mono);color:var(--t3)">EXPOSURE SUMMARY — ${lineups.length} lineups generated</div>
+      <div class="table-scroll"><table class="td-table"><thead><tr><th>Pos</th><th>Player</th><th>Team</th><th class="num-col">CPT</th><th class="num-col">FLEX</th><th class="num-col">Total Used</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  })() : '';
+
   const allSorted = [...players].sort((a, b) => b.points - a.points);
   const tableRows = allSorted.map(p => `<tr class="expand-row" data-dfs-detail="${p.id}">
     <td class="td-pos">${p.pos}</td><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
@@ -1574,7 +1605,7 @@ function renderDfsResults(data) {
     <td class="td-touch num-col">${(p.points / (p.salary / 1000)).toFixed(2)}</td>
     <td>${p.modeled ? '<span style="color:var(--teal);font-size:9px;font-family:var(--mono)">MODEL</span>' : '<span style="color:var(--t3);font-size:9px;font-family:var(--mono)">EST</span>'}${p.lowSample ? ' <span style="color:var(--amber);font-size:9px;font-family:var(--mono)" title="Barely any track record behind this projection">⚠ THIN</span>' : ''}</td></tr>`).join('');
 
-  document.getElementById('dfsResults').innerHTML = lineupHTML +
+  document.getElementById('dfsResults').innerHTML = lineupHTML + exposureHTML +
     `<div style="margin:18px 0 8px;font-size:11px;font-family:var(--mono);color:var(--t3)">ALL PLAYER PROJECTIONS (sorted by projected points, FLEX pricing)</div>
     <div class="table-scroll"><table class="td-table"><thead><tr><th>Pos</th><th>Player</th><th>Team</th><th class="num-col">Proj Pts</th><th class="num-col">Salary</th><th class="num-col">Pts/$1k</th><th>Source</th></tr></thead>
     <tbody>${tableRows}</tbody></table></div>`;
