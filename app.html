@@ -384,7 +384,7 @@ const filterState = {
   pass: { matchup: 'all', signal: 'all' },
 };
 const TAB_SIGNALS = {
-  td:   ['High Usage', 'Favorable Matchup', 'Hot Streak', 'Shootout Game', 'Featured Role', 'Sample Confidence'],
+  td:   ['High Usage', 'Favorable Matchup', 'Hot Streak', 'Shootout Game', 'Featured Role', 'Red Zone Role', 'Sample Confidence'],
   rush: ['High Usage', 'Favorable Matchup', 'Hot Streak', 'Bellcow Volume', 'Sample Confidence'],
   rec:  ['High Usage', 'Favorable Matchup', 'Hot Streak', 'Featured Target', 'Sample Confidence'],
   pass: ['High Volume', 'Favorable Matchup', 'Hot Streak', 'Pass-Heavy Script', 'Sample Confidence'],
@@ -438,11 +438,12 @@ function attachFilterHandlers(tab, rerenderFn) {
     pill.addEventListener('click', () => { filterState[tab].position = pill.dataset.pos; rerenderFn(rawData[tab]); });
   });
 }
-const SIGNAL_ABBR = { 'High Usage':'USE','High Volume':'VOL','Favorable Matchup':'EDGE','Hot Streak':'HOT','Shootout Game':'SHOOT','Featured Role':'ROLE','Sample Confidence':'CONF','Bellcow Volume':'BCOW','Featured Target':'TGT','Pass-Heavy Script':'SCRIPT' };
+const SIGNAL_ABBR = { 'High Usage':'USE','High Volume':'VOL','Favorable Matchup':'EDGE','Hot Streak':'HOT','Shootout Game':'SHOOT','Featured Role':'ROLE','Red Zone Role':'RZ','Sample Confidence':'CONF','Bellcow Volume':'BCOW','Featured Target':'TGT','Pass-Heavy Script':'SCRIPT' };
 const SIGNAL_DESC = {
   'High Usage':'Meaningful volume above the position baseline','High Volume':'Pass attempts per game above starter baseline',
   'Favorable Matchup':'Opponent allows more than league-average rate to this stat','Hot Streak':'Strong performance in 2+ of last 3 games',
   'Shootout Game':"This week's projected total is 48+ points",'Featured Role':'Elevated role signal for this position',
+  'Red Zone Role':'Real inside-the-10 touch share (from play-by-play) at or above the position baseline',
   'Sample Confidence':'Enough recent volume that the read is not small-sample noise','Bellcow Volume':"Projected carries 16+ this week",
   'Featured Target':"Projected targets 8+ this week",'Pass-Heavy Script':"Projected attempts 36+ this week",
 };
@@ -802,6 +803,7 @@ function tdDrawerBody(p) {
     <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
     <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Anytime TD Probability</span><span style="color:var(--teal);font-family:var(--mono)">${p.prob}%</span></div>
     <div class="detail-sig-row"><span>Touches (L5)</span><span style="font-family:var(--mono)">${p.touches}</span></div>
+    ${p.inside10Share!=null?`<div class="detail-sig-row"><span>Inside-the-10 Share</span><span style="font-family:var(--mono)">${(p.inside10Share*100).toFixed(0)}%</span></div>`:''}
     <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
     ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div>`;
 }

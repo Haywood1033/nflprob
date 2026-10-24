@@ -12,6 +12,7 @@ const { recencyWindow } = require('../lib/recency-window.js');
 const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
 const { fetchPlayerWeekStats } = require('../lib/player-stats.js');
 const { qbStatus } = require('../lib/qb-status.js');
+const { fetchPbp, computeRedZoneStats, teamRedZoneTdRate } = require('../lib/red-zone.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000; // 30 min — team efficiency data doesn't move fast
@@ -34,16 +35,23 @@ module.exports = async function handler(req, res) {
 
   const teamRows = await fetchTeamWeekStats(year);
   const homeTeams = schedule.map(g => g.homeTeam);
-  const [weather, marketGames, playerSeasonRows] = await Promise.all([
+  const [weather, marketGames, playerSeasonRows, pbpRows] = await Promise.all([
     fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {}),
     fetchGames(),
     fetchPlayerWeekStats(year),
+    fetchPbp(year),
   ]);
+  // Real per-trip red-zone TD rate per team, from play-by-play — see lib/red-zone.js. null
+  // (not fetched/unavailable) falls through computeTeamEfficiency to the honest "no data"
+  // placeholder it already had.
+  const rzStats = pbpRows ? computeRedZoneStats(pbpRows, Number(week) - 1) : null;
 
   const games = schedule.map(g => {
     const tw = Number(week) - 1;
-    const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, tw, recencyWindow(tw)) : null;
-    const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, tw, recencyWindow(tw)) : null;
+    const homeRz = rzStats ? teamRedZoneTdRate(rzStats, toNflverseAbbr(g.homeAbbr)) : null;
+    const awayRz = rzStats ? teamRedZoneTdRate(rzStats, toNflverseAbbr(g.awayAbbr)) : null;
+    const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, tw, recencyWindow(tw), homeRz) : null;
+    const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, tw, recencyWindow(tw), awayRz) : null;
     const gameWeather = weather[g.homeTeam] || {};
 
     // Market context (real spread/total line, rest days, key-number/blowout/teaser flags) —
@@ -66,7 +74,7 @@ module.exports = async function handler(req, res) {
       totalEdge: market.totalLine != null ? +(model.total - market.totalLine).toFixed(1) : null,
     } : null;
 
-    return { ...g, model, weather: gameWeather, market: { ...market, homeQbStatus, awayQbStatus, marketEdge } };
+    return { ...g, model, weather: gameWeather, market: { ...market, homeQbStatus, awayQbStatus, marketEdge, homeRedZoneTdRate: homeRz, awayRedZoneTdRate: awayRz } };
   });
 
   const data = { week, year, games, timestamp: Date.now(), elapsed: Date.now() - start };

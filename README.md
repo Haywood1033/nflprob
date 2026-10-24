@@ -22,9 +22,10 @@ once real results come in, Wilson-score confidence tiers, locked signal badges, 
   is `github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_{season}.csv`
   (not raw.githubusercontent.com — that was wrong in an earlier pass). The file is offense-only,
   one row per team per game; defense-allowed EPA is derived by looking up the opponent's row
-  for the same `game_id`. No red-zone-rate column exists in this file — would need play-by-play
-  data to add that signal later. Team abbreviations here are nflverse's own (`LA`, `WAS`), not
-  ESPN's (`LAR`, `WSH`) — normalized in `toNflverseAbbr()`.
+  for the same `game_id`. No red-zone-rate column exists in this file itself — that signal now
+  comes from `lib/red-zone.js`'s separate play-by-play fetch and is passed in as this function's
+  optional `redZoneTdRate` argument (see "Market & risk signals" below). Team abbreviations here
+  are nflverse's own (`LA`, `WAS`), not ESPN's (`LAR`, `WSH`) — normalized in `toNflverseAbbr()`.
 - `lib/player-stats.js` — player-level weekly stats from the same release family (`stats_player`
   tag). **Verified against the live file.** Uses a real quote-aware CSV parser — the naive
   comma-split that worked for the team file breaks here because `headshot_url` contains an
@@ -72,10 +73,24 @@ is a label with no logic behind it, and the two gaps are called out as exactly t
   (Layer 3 of that other engine) has no free source — every real provider (Action Network,
   VSiN, sportsbook-reported handle) is paid. Defensive-scheme splits (man/zone rate, pressure
   scheme) aren't available free at useful granularity either.
-- **Not built, but genuinely feasible later**: red-zone/inside-the-10 touch share and special
-  teams/field-position signals both need nflverse's play-by-play release (a much larger
-  per-season file than anything fetched today) — real, free, just a bigger separate build than
-  this pass covered.
+- `lib/red-zone.js` — **real red-zone/inside-the-10 touch share and team red-zone TD rate**,
+  from nflverse's play-by-play release (Layers 5/14 of that other engine). This file is a
+  different size class than anything else fetched (300+ columns, tens of thousands of rows —
+  gzipped on the wire, decompressed with Node's built-in `zlib`), so it only keeps the ~13
+  columns actually used. **Verified live**: fetched and parsed the real 2026-through-week-8
+  file in ~2s; cross-checked Josh Allen's real inside-the-10 share (23%, QB sneak volume) and
+  BUF/BAL's real per-trip red-zone TD rates (69%/71%) against the raw rows by hand.
+  Players are joined by `player_id` (GSIS id), not name — PBP's own name fields are abbreviated
+  ("J.Allen") and don't match `stats_player_week`'s `player_display_name`, verified against real
+  rows; `player_id` is the exact same id format in both files. Team-level red-zone TD rate also
+  now feeds `lib/nflverse.js`'s previously-always-null `redZoneTdRate`, which
+  `lib/team-scoring.js` already had a dead hook for. Player-level inside-10 share feeds a new
+  `anytimeTdProb` multiplier and `getTdSignals` "Red Zone Role" signal in `lib/td-scoring.js`
+  (badge thresholds rescaled 5/6/7-of-7 to keep the Elite/All-Star/Value cut points the same
+  after adding a 7th signal). Wired into both `api/team-model.js` and `api/props.js`.
+- **Not built, but genuinely feasible later**: special teams/field-position signals (net
+  punting, return suppression) need the same play-by-play file as above — real, free, just not
+  pulled into this pass.
 
 ## What's NOT built yet
 - Yardage prop distributions (rushing/receiving/passing) have scoring modules (`lib/rush-scoring.js`,
@@ -85,7 +100,8 @@ is a label with no logic behind it, and the two gaps are called out as exactly t
   for real now (not stubbed, despite an earlier version of this README saying so)
 - The full accuracy/calibration UI (HR engine's `htier` calibration display)
 - Real-season calibration correction for the TD model (needs tracked results, like HR engine had)
-- Play-by-play-derived signals (red-zone touch share, special teams) — see above
+- Special-teams/field-position play-by-play signals — see "Market & risk signals" above
+  (red-zone touch share itself is now built, not a gap)
 - Market/QB/rest signals above are wired into the Team Model tab only — the player-prop tabs
   (TD/rush/rec/pass) don't yet inherit the backup-QB or rest-day context
 
