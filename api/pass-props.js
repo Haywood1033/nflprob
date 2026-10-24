@@ -8,6 +8,8 @@ const { recencyWindow, recentGames } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
 const { poolFromRoster } = require('../lib/roster-pool.js');
 
+const { playerDetail } = require('../lib/player-detail.js');
+
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
 
@@ -112,6 +114,7 @@ module.exports = async function handler(req, res) {
         ci: sig.ci,
         injured: !isHealthy(roster, starter.name),
         injuryStatus: rosterEntry?.injuryStatus || null,
+        detail: playerDetail(playerRows, { name: starter.name, team: starter.histTeam, position: 'QB', oppAbbr: toNflverseAbbr(t.oppAbbr), market: 'pass', throughWeek }),
       });
     }
   }

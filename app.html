@@ -317,6 +317,38 @@ body{font-variant-numeric:tabular-nums;background:var(--bg)}
 .dfs-ctrl{font-family:var(--sans);font-size:11.5px;border-radius:5px;height:24px;display:inline-flex;align-items:center}
 .dfs-upload-zone{border-radius:var(--r);border-width:1px}
 :focus-visible{outline:2px solid var(--teal);outline-offset:2px;border-radius:4px}
+
+/* Evidence-first player panel */
+:root{--s1:#3987e5;--s1-quiet:rgba(57,135,229,.38);--s2:#d95926;--s3:#199e70;--grid:#222b42}
+.pp-section{margin-bottom:22px}
+.pp-t{font-size:12px;font-weight:600;color:var(--t3);margin-bottom:10px}
+.pp-kv{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--bd);border:1px solid var(--bd);border-radius:var(--r-sm);overflow:hidden}
+.pp-kv>div{background:var(--bg2);padding:10px 12px}
+.pp-kv .k{font-size:12px;color:var(--t3)}
+.pp-kv .v{font-size:15px;font-weight:600;margin-top:2px;color:var(--t1)}
+.pp-note{font-size:12px;color:var(--t3);margin-top:8px;line-height:1.5}
+.pp-chart{display:block;width:100%;overflow:visible}
+.pp-chart text{fill:var(--t3);font-size:10.5px;font-family:var(--sans)}
+.pp-chart text.pp-quiet{fill:#5f6a83}
+.pp-chart text.pp-strong{fill:var(--t1);font-weight:600;font-size:11.5px}
+.pp-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--t2);margin-top:6px}
+.pp-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.pp-legend i.line{height:2px;width:14px;vertical-align:3px}
+.pp-legend i.band{opacity:.3}
+.pp-legend i.dot{border-radius:50%}
+.pp-signal{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--bd)}
+.pp-signal:last-child{border-bottom:0}
+.pp-signal p{font-size:12.5px;color:var(--t2);line-height:1.5}
+.pp-tag{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:4px;font-size:11.5px;font-weight:600;white-space:nowrap;color:var(--t3);border:1px solid var(--bd2)}
+.pp-tag.on{color:var(--green);border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.1)}
+.pp-warn{margin-bottom:16px;padding:10px 12px;border-radius:var(--r-sm);background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:var(--red);font-size:12.5px;font-weight:600}
+.pp-log{width:100%;border-collapse:collapse;font-size:12.5px}
+.pp-log th{text-align:right;font-weight:600;color:var(--t3);font-size:12px;padding:6px 8px;border-bottom:1px solid var(--bd)}
+.pp-log td{text-align:right;padding:7px 8px;border-bottom:1px solid var(--bd);color:var(--t2)}
+.pp-log th:nth-child(-n+2),.pp-log td:nth-child(-n+2){text-align:left}
+#pp-tip{position:fixed;z-index:1000;pointer-events:none;background:var(--bg4);border:1px solid var(--bd2);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.55;color:var(--t2);box-shadow:0 12px 40px rgba(0,0,0,.45);opacity:0;transition:opacity .1s}
+#pp-tip.on{opacity:1}
+#pp-tip b{color:var(--t1)}
 @media(max-width:720px){.wrap{padding:16px 16px 48px}.hdr,.tabs{padding-left:16px;padding-right:16px}}
 </style>
 </head>
@@ -512,6 +544,139 @@ function signalFilterPillsHTML(tab, labels, active) {
 function attachSignalFilterHandlers(tab, onPick) {
   document.querySelectorAll(`.sig-filter-pill[data-sigfilter-tab="${tab}"]`).forEach(p => p.addEventListener('click', () => onPick(p.dataset.sigfilter)));
 }
+// ── Evidence-first player panel ──────────────────────────────────────────────────────────
+// Every prop tab's drawer (and Best Plays) renders the same panel from the player's `detail`
+// evidence: market-specific stat tiles, a game-log chart against the projection, the usage
+// share trend, signal chips with a reason built from the numbers, and the game log itself.
+const MARKET_OF = { TD: 'td', RUSH: 'rush', REC: 'rec', PASS: 'pass' };
+const ppEsc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ppPct = (v, d = 0) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`);
+const ppOrd = n => `${n}${(n % 100 > 10 && n % 100 < 14) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`;
+const ppFair = pct => { const q = pct / 100; if (!q || q >= 1) return '—'; return q >= 0.5 ? `−${Math.round(100 * q / (1 - q))}` : `+${Math.round(100 * (1 - q) / q)}`; };
+
+function ppGameLogChart(d, market, proj) {
+  const games = d.games;
+  const W = 400, H = 170, ml = 30, mr = 8, mt = 14, mb = 30;
+  const val = g => (market === 'td' ? g.vol : g.yds);
+  const max = Math.max(1, ...games.map(val), proj ? proj.ceiling : 0) * 1.08;
+  const y = v => mt + (H - mt - mb) * (1 - v / max);
+  const band = (W - ml - mr) / games.length, bw = Math.min(24, band * 0.62);
+  const step = max > 200 ? 100 : max > 80 ? 40 : max > 30 ? 10 : 5;
+  const ticks = []; for (let t = 0; t <= max; t += step) ticks.push(t);
+  const bars = games.map((g, i) => {
+    const x = ml + band * i + (band - bw) / 2, v = val(g), h = Math.max(0, y(0) - y(v)), r = Math.min(4, bw / 2, h);
+    const over = proj && market !== 'td' ? v >= proj.projected : g.tds > 0;
+    const path = h > 0 ? `M${x},${y(0)}V${y(v) + r}Q${x},${y(v)} ${x + r},${y(v)}H${x + bw - r}Q${x + bw},${y(v)} ${x + bw},${y(v) + r}V${y(0)}Z` : '';
+    const tip = `<b>W${g.week} vs ${ppEsc(g.opp)}</b><br>${d.volLabel}: ${g.vol}<br>Yards: ${g.yds}<br>TDs: ${g.tds}${g.share != null ? `<br>Share: ${ppPct(g.share)}` : ''}`;
+    return `<g data-pp-tip="${ppEsc(tip)}"><rect x="${ml + band * i}" y="${mt}" width="${band}" height="${H - mt - mb}" fill="transparent"/>
+      <path d="${path}" fill="${over ? 'var(--s1)' : 'var(--s1-quiet)'}"/>
+      ${market === 'td' && g.tds > 0 ? `<circle cx="${x + bw / 2}" cy="${y(v) - 9}" r="5" fill="var(--s2)" stroke="var(--bg2)" stroke-width="2"/>` : ''}
+      <text x="${x + bw / 2}" y="${H - 16}" text-anchor="middle">W${g.week}</text><text x="${x + bw / 2}" y="${H - 4}" text-anchor="middle" class="pp-quiet">${ppEsc(g.opp)}</text></g>`;
+  }).join('');
+  const projLines = proj && market !== 'td' ? `<rect x="${ml}" y="${y(proj.ceiling)}" width="${W - ml - mr}" height="${Math.max(0, y(proj.floor) - y(proj.ceiling))}" fill="var(--s3)" opacity="0.12"/>
+      <line x1="${ml}" x2="${W - mr}" y1="${y(proj.projected)}" y2="${y(proj.projected)}" stroke="var(--s3)" stroke-width="2"/>` : '';
+  return `<svg class="pp-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Game log">
+      ${ticks.map(t => `<line x1="${ml}" x2="${W - mr}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${ml - 6}" y="${y(t) + 4}" text-anchor="end">${t}</text>`).join('')}
+      ${projLines}${bars}</svg>
+    <div class="pp-legend">${market === 'td'
+      ? `<span><i style="background:var(--s1)"></i>Touches · scored</span><span><i style="background:var(--s1-quiet)"></i>No TD</span><span><i class="dot" style="background:var(--s2)"></i>Touchdown</span>`
+      : `<span><i style="background:var(--s1)"></i>Over projection</span><span><i style="background:var(--s1-quiet)"></i>Under</span><span><i class="line" style="background:var(--s3)"></i>Projection ${proj.projected}</span><span><i class="band" style="background:var(--s3)"></i>Floor–ceiling</span>`}</div>`;
+}
+
+function ppShareChart(d) {
+  const pts = d.games.filter(g => g.share != null);
+  if (pts.length < 2) return '';
+  const W = 400, H = 110, ml = 30, mr = 30, mt = 12, mb = 22;
+  const max = Math.min(1, Math.ceil(Math.max(...pts.map(g => g.share)) * 1.1 * 10) / 10), min = 0;
+  const x = i => ml + (i / (pts.length - 1)) * (W - ml - mr), y = v => mt + (H - mt - mb) * (1 - (v - min) / (max - min));
+  const path = pts.map((g, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(g.share).toFixed(1)}`).join('');
+  const last = pts[pts.length - 1];
+  return `<svg class="pp-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Usage share by game">
+      ${[0, max / 2, max].map(t => `<line x1="${ml}" x2="${W - mr}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${ml - 6}" y="${y(t) + 4}" text-anchor="end">${Math.round(t * 100)}%</text>`).join('')}
+      <path d="${path}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round"/>
+      ${pts.map((g, i) => `<g data-pp-tip="${ppEsc(`<b>W${g.week} vs ${g.opp}</b><br>Share: ${ppPct(g.share)}`)}"><circle cx="${x(i)}" cy="${y(g.share)}" r="9" fill="transparent"/><circle cx="${x(i)}" cy="${y(g.share)}" r="4" fill="var(--s1)" stroke="var(--bg2)" stroke-width="2"/></g>`).join('')}
+      <text x="${x(pts.length - 1) + 8}" y="${y(last.share) + 4}" class="pp-strong">${ppPct(last.share)}</text>
+      ${pts.map((g, i) => `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">W${g.week}</text>`).join('')}</svg>`;
+}
+
+// One-line reasons built from the evidence; falls back to the signal's generic description.
+function ppSignalReason(s, d, p, market) {
+  const g = d?.games || [], l3 = g.slice(-3);
+  const avg = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+  const key = s.key;
+  if (key === 'usage' && d?.shareL3 != null) return `${ppPct(d.shareL3)} of team ${d.volLabel.toLowerCase()} over the last 3 games (${ppPct(d.shareSeason)} on the season)`;
+  if ((key === 'usage' || key === 'volume') && l3.length) return `${avg(l3.map(x => x.vol)).toFixed(1)} ${d.volLabel.toLowerCase()} per game over the last 3`;
+  if (key === 'matchup' && d?.oppRank) return `${d.oppRank.team} rank ${ppOrd(d.oppRank.rank)} of ${d.oppRank.of} in ${d.oppRank.label} (${d.oppRank.perGame}/game)`;
+  if ((key === 'hot' || key === 'streak') && l3.length) {
+    if (market === 'td') return `Scored in ${l3.filter(x => x.tds > 0).length} of the last ${l3.length} games`;
+    return `${avg(l3.map(x => x.yds)).toFixed(0)} yards per game over the last 3${p.projected ? ` vs a ${p.projected} projection` : ''}`;
+  }
+  if (key === 'conf' && g.length) return `${g.length} games tracked this season`;
+  return SIGNAL_DESC[s.label] || '';
+}
+
+function playerPanel(p, market) {
+  const d = p.detail;
+  const proj = p.projected != null ? { projected: p.projected, floor: p.floor, ceiling: p.ceiling } : null;
+  const games = d?.games || [];
+  const over = proj ? games.filter(g => g.yds >= proj.projected).length : null;
+  const scored = games.filter(g => g.tds > 0).length;
+  const volL5 = market === 'td' ? p.touches : market === 'rush' ? p.carries : market === 'rec' ? p.targets : p.attempts;
+  const tiles = market === 'td'
+    ? [['Anytime TD', `${p.prob}%`], ['Fair odds', ppFair(p.prob)], ['Scored in', games.length ? `${scored} of ${games.length}` : '—'],
+       ['Touches (L5)', volL5 ?? '—'], ['Touch share (L3)', ppPct(d?.shareL3)], ['Opp vs position', d?.oppRank ? `${ppOrd(d.oppRank.rank)} of ${d.oppRank.of}` : '—']]
+    : [['Projection', `${p.projected} yds`], ['Floor – ceiling', `${p.floor}–${p.ceiling}`], ['Over projection', games.length ? `${over} of ${games.length}` : '—'],
+       [`${d?.volLabel || 'Volume'} (L5)`, volL5 ?? '—'], [market === 'pass' ? 'TDs (season)' : 'Share (L3)', market === 'pass' ? games.reduce((x, g) => x + g.tds, 0) : ppPct(d?.shareL3)], ['Opp vs position', d?.oppRank ? `${ppOrd(d.oppRank.rank)} of ${d.oppRank.of}` : '—']];
+  const sigs = (p.signals || []).map(s => `<div class="pp-signal"><span class="pp-tag ${s.active ? 'on' : ''}">${s.active ? '✓' : '·'} ${ppEsc(s.label)}</span><p>${ppEsc(ppSignalReason(s, d, p, market))}</p></div>`).join('');
+  return `
+    ${p.injured ? `<div class="pp-warn">⚠ ${ppEsc(p.injuryStatus || 'Injury designation')}: check status before betting</div>` : ''}
+    <div class="pp-section"><div class="pp-t">This week</div>
+      <div class="pp-kv">${tiles.map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>
+      <div class="pp-note">${p.badge ? `${ppEsc(p.badge.label)} · ` : ''}Confidence ${ppEsc(p.ci?.label || '—')}${d?.oppRank ? ` · ${ppEsc(d.oppRank.team)} allow ${d.oppRank.perGame.toFixed(1)} per game in ${ppEsc(d.oppRank.label)}` : ''}</div></div>
+    ${games.length ? `<div class="pp-section"><div class="pp-t">${market === 'td' ? 'Touches by game, touchdowns marked' : 'Yards by game vs this week’s projection'}</div>${ppGameLogChart(d, market, proj)}</div>` : '<div class="pp-note">No game log for this player yet.</div>'}
+    ${d && games.some(g => g.share != null) ? `<div class="pp-section"><div class="pp-t">Share of team ${ppEsc(d.volLabel.toLowerCase())}</div>${ppShareChart(d)}</div>` : ''}
+    <div class="pp-section"><div class="pp-t">Why the model sees it this way</div>${sigs || '<div class="pp-note">No signal data</div>'}</div>
+    ${games.length ? `<div class="pp-section"><div class="pp-t">Game log</div><table class="pp-log"><thead><tr><th>Wk</th><th>Opp</th><th>${ppEsc(d.volLabel)}</th><th>Yds</th><th>TD</th>${games.some(g => g.share != null) ? '<th>Share</th>' : ''}</tr></thead>
+      <tbody>${[...games].reverse().map(g => `<tr><td>${g.week}</td><td>${ppEsc(g.opp)}</td><td>${g.vol}</td><td>${g.yds}</td><td>${g.tds || ''}</td>${g.share != null ? `<td>${ppPct(g.share)}</td>` : games.some(x => x.share != null) ? '<td>—</td>' : ''}</tr>`).join('')}</tbody></table></div>` : ''}`;
+}
+
+// Game drawer: each team's recent points for / against, from the team-model trend.
+function gameTrendHTML(g) {
+  const t = g.trend;
+  if (!t || (!t.home && !t.away)) return '';
+  const chart = (rows, name) => {
+    if (!rows?.length || rows.every(r => r.pf == null)) return '';
+    const W = 400, H = 130, ml = 26, mr = 6, mt = 10, mb = 30;
+    const max = Math.max(10, ...rows.flatMap(r => [r.pf || 0, r.pa || 0])) * 1.1;
+    const y = v => mt + (H - mt - mb) * (1 - v / max), band = (W - ml - mr) / rows.length, bw = Math.min(14, band * 0.32);
+    const col = (x, v, c) => { const h = y(0) - y(v), r = Math.min(4, bw / 2, h); return h > 0 ? `<path d="M${x},${y(0)}V${y(v) + r}Q${x},${y(v)} ${x + r},${y(v)}H${x + bw - r}Q${x + bw},${y(v)} ${x + bw},${y(v) + r}V${y(0)}Z" fill="${c}"/>` : ''; };
+    const wins = rows.filter(r => r.pf > r.pa).length, ties = rows.filter(r => r.pf === r.pa).length;
+    return `<div class="pp-section"><div class="pp-t">${ppEsc(name)}: last ${rows.length} games (${wins}–${rows.length - wins - ties}${ties ? `–${ties}` : ''})</div>
+      <svg class="pp-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${ppEsc(name)} points for and against">
+      ${[0, 20, 40].filter(v => v < max).map(v => `<line x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${ml - 5}" y="${y(v) + 4}" text-anchor="end">${v}</text>`).join('')}
+      ${rows.map((r, i) => { const cx = ml + band * i + band / 2; return `<g data-pp-tip="${ppEsc(`<b>W${r.week} vs ${r.opp}</b><br>Score: ${r.pf}–${r.pa} (${r.pf > r.pa ? 'W' : r.pf < r.pa ? 'L' : 'T'})${r.epaOff != null ? `<br>Off EPA/play: ${r.epaOff.toFixed(2)}<br>Def EPA/play allowed: ${r.epaDef != null ? r.epaDef.toFixed(2) : '—'}` : ''}`)}"><rect x="${ml + band * i}" y="${mt}" width="${band}" height="${H - mt - mb}" fill="transparent"/>${col(cx - bw - 1, r.pf || 0, 'var(--s1)')}${col(cx + 1, r.pa || 0, 'var(--s2)')}<text x="${cx}" y="${H - 16}" text-anchor="middle">W${r.week}</text><text x="${cx}" y="${H - 4}" text-anchor="middle" class="pp-quiet">${ppEsc(r.opp)}</text></g>`; }).join('')}
+      </svg></div>`;
+  };
+  const out = chart(t.away, g.awayTeam) + chart(t.home, g.homeTeam);
+  return out ? out + '<div class="pp-legend" style="margin:-10px 0 14px"><span><i style="background:var(--s1)"></i>Points scored</span><span><i style="background:var(--s2)"></i>Points allowed</span></div>' : '';
+}
+
+// One shared hover tooltip for every panel chart.
+const ppTip = Object.assign(document.createElement('div'), { id: 'pp-tip' });
+document.body.appendChild(ppTip);
+document.addEventListener('scroll', () => ppTip.classList.remove('on'), true);
+document.addEventListener('mousemove', e => {
+  const el = e.target.closest && e.target.closest('[data-pp-tip]');
+  if (!el) { ppTip.classList.remove('on'); return; }
+  ppTip.innerHTML = el.getAttribute('data-pp-tip');
+  ppTip.classList.add('on');
+  const r = ppTip.getBoundingClientRect();
+  let x = e.clientX + 14, yy = e.clientY + 14;
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - 14;
+  if (yy + r.height > innerHeight - 8) yy = e.clientY - r.height - 14;
+  ppTip.style.left = `${Math.max(8, x)}px`; ppTip.style.top = `${Math.max(8, yy)}px`;
+});
+
 function signalDetailListHTML(signals) {
   if (!signals || !signals.length) return '<div class="gs-meta">No signal data</div>';
   return signals.map(s => `<div class="detail-sig-row"><span style="color:${s.active?'var(--teal)':'var(--t3)'};display:inline-flex;align-items:center;gap:5px">${icon(s.active?'check':'cross')} ${s.label}</span></div><div class="detail-sig-desc" style="margin-bottom:6px">${SIGNAL_DESC[s.label]||''}</div>`).join('');
@@ -613,7 +778,7 @@ function renderThisWeek(teamData, propsData, allProps) {
     const body = `<div class="detail-grid"><div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
       <div><div class="detail-block-hdr">Key Stats</div>${p.detailStats.map(([l,v])=>`<div class="detail-sig-row"><span>${l}</span><span style="color:var(--teal);font-family:var(--mono)">${v}</span></div>`).join('')}
       <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div></div></div>`;
-    openDrawer(header, body);
+    openDrawer(header, p.src ? playerPanel(p.src, MARKET_OF[p.propType]) : body);
   };
   document.querySelectorAll('[data-best-overall-key]').forEach(card => card.addEventListener('click', () => { if (bestOverall) openPlayDrawer(bestOverall); }));
   document.querySelectorAll('[data-sharp-key]').forEach(card => card.addEventListener('click', () => {
@@ -824,7 +989,7 @@ function openSlateDrawer(idx) {
     <div class="slate-meta-row"><div class="slate-meta-item"><div class="slate-meta-val">${m.total??'—'}</div><div class="slate-meta-lbl">Total</div></div>
     <div class="slate-meta-item center"><div class="slate-meta-val" style="color:${awayFav?'var(--teal)':'var(--t3)'}">${m.awayWinProb??'—'}%</div><div class="slate-meta-lbl">${g.awayTeam} Win</div></div>
     <div class="slate-meta-item"><div class="slate-meta-val" style="color:${homeFav?'var(--teal)':'var(--t3)'}">${m.homeWinProb??'—'}%</div><div class="slate-meta-lbl">${g.homeTeam} Win</div></div></div>
-    <div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">${g.awayTeam} — Top TD Threats</div>${awayTd.slice(0,3).map(top3Row).join('')||'<div class="gs-meta">No data</div>'}</div>
+    ${gameTrendHTML(g)}<div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">${g.awayTeam} — Top TD Threats</div>${awayTd.slice(0,3).map(top3Row).join('')||'<div class="gs-meta">No data</div>'}</div>
     <div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">${g.homeTeam} — Top TD Threats</div>${homeTd.slice(0,3).map(top3Row).join('')||'<div class="gs-meta">No data</div>'}</div>
     <div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">Top Prop Projections (Game)</div>${allProps.slice(0,5).map(propRow).join('')||'<div class="gs-meta">No data</div>'}</div>`;
   openDrawer(header, body);
@@ -837,14 +1002,7 @@ async function loadTdProps() {
 function playerDrawerHeader(p) {
   return `<div class="dd-name">${p.name}</div><div class="dd-sub">${p.position?p.position+' · ':''}${p.team} vs ${p.opponent}</div>`;
 }
-function tdDrawerBody(p) {
-  return `<div class="detail-grid">
-    <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
-    <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Anytime TD Probability</span><span style="color:var(--teal);font-family:var(--mono)">${p.prob}%</span></div>
-    <div class="detail-sig-row"><span>Touches (L5)</span><span style="font-family:var(--mono)">${p.touches}</span></div>
-    <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
-    ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div>`;
-}
+function tdDrawerBody(p) { return playerPanel(p, 'td'); }
 function renderTdProps(d) {
   setStatus(d.cached);
   const allPlayers = d.players || [];
@@ -872,15 +1030,7 @@ async function loadRushProps() {
   try { const [d] = await Promise.all([cachedJSON('/api/rush-props?week=' + week), ensurePropsGameSlotMap()]); rawData.rush = d; renderRushProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
-function rushDrawerBody(p) {
-  return `<div class="detail-grid">
-    <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
-    <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Projected Rushing Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
-    <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
-    <div class="detail-sig-row"><span>Carries (L5)</span><span style="font-family:var(--mono)">${p.carries}</span></div>
-    <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
-    ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div>`;
-}
+function rushDrawerBody(p) { return playerPanel(p, 'rush'); }
 function renderRushProps(d) {
   setStatus(d.cached);
   const allPlayers = d.players || [];
@@ -908,15 +1058,7 @@ async function loadRecProps() {
   try { const [d] = await Promise.all([cachedJSON('/api/rec-props?week=' + week), ensurePropsGameSlotMap()]); rawData.rec = d; renderRecProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
-function recDrawerBody(p) {
-  return `<div class="detail-grid">
-    <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
-    <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Projected Receiving Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
-    <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
-    <div class="detail-sig-row"><span>Targets (L5)</span><span style="font-family:var(--mono)">${p.targets}</span></div>
-    <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
-    ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div>`;
-}
+function recDrawerBody(p) { return playerPanel(p, 'rec'); }
 function renderRecProps(d) {
   setStatus(d.cached);
   const allPlayers = d.players || [];
@@ -944,15 +1086,7 @@ async function loadPassProps() {
   try { const [d] = await Promise.all([cachedJSON('/api/pass-props?week=' + week), ensurePropsGameSlotMap()]); rawData.pass = d; renderPassProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
-function passDrawerBody(p) {
-  return `<div class="detail-grid">
-    <div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
-    <div><div class="detail-block-hdr">Key Stats</div><div class="detail-sig-row"><span>Projected Passing Yds</span><span style="color:var(--teal);font-family:var(--mono)">${p.projected}</span></div>
-    <div class="detail-sig-row"><span>Floor – Ceiling</span><span style="font-family:var(--mono)">${p.floor} – ${p.ceiling}</span></div>
-    <div class="detail-sig-row"><span>Attempts (L5)</span><span style="font-family:var(--mono)">${p.attempts}</span></div>
-    <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div>
-    ${p.injured?`<div class="detail-sig-row"><span style="color:var(--red)">⚠ ${p.injuryStatus||'Injured'}</span></div>`:''}</div></div>`;
-}
+function passDrawerBody(p) { return playerPanel(p, 'pass'); }
 function renderPassProps(d) {
   setStatus(d.cached);
   const allPlayers = d.players || [];
@@ -995,16 +1129,16 @@ function sortPlays(a,b) { const tw=tierWeight(b.badge)-tierWeight(a.badge); if (
 // pool) because Sharp Play eligibility checks an absolute, type-specific floor, not a relative one.
 function buildAllPlaysPool(raw) {
   const td = raw.td.map(p => ({ name:p.name, propType:'TD', typeLabel:'TD', position:p.position, team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:p.prob+'%', normalizedValue:(p.prob/65)*100, rawValue:p.prob, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
+    displayValue:p.prob+'%', normalizedValue:(p.prob/65)*100, rawValue:p.prob, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci, src:p,
     detailStats:[['Anytime TD Probability', p.prob+'%'],['Touches (L5)', p.touches]] }));
   const rush = raw.rush.map(p => ({ name:p.name, propType:'RUSH', typeLabel:'RUSH', position:'RB', team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/200)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
+    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/200)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci, src:p,
     detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Carries (L5)', p.carries]] }));
   const rec = raw.rec.map(p => ({ name:p.name, propType:'REC', typeLabel:'REC', position:p.position, team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/150)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
+    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/150)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci, src:p,
     detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Targets (L5)', p.targets]] }));
   const pass = raw.pass.map(p => ({ name:p.name, propType:'PASS', typeLabel:'PASS', position:'QB', team:p.team, opponent:p.opponent, gameId:p.gameId,
-    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/350)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci,
+    displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/350)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci, src:p,
     detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Attempts (L5)', p.attempts]] }));
   return [...td, ...rush, ...rec, ...pass];
 }
@@ -1066,7 +1200,7 @@ function renderBestPlays() {
     const body = `<div class="detail-grid"><div><div class="detail-block-hdr">Signal Breakdown</div>${signalDetailListHTML(p.signals)}</div>
       <div><div class="detail-block-hdr">Key Stats</div>${p.detailStats.map(([l,v])=>`<div class="detail-sig-row"><span>${l}</span><span style="color:var(--teal);font-family:var(--mono)">${v}</span></div>`).join('')}
       <div class="detail-sig-row"><span>Confidence Tier</span><span style="color:${p.ci?.color||'var(--t3)'};font-family:var(--mono)">${p.ci?.label||'—'}</span></div></div></div>`;
-    openDrawer(header, body);
+    openDrawer(header, p.src ? playerPanel(p.src, MARKET_OF[p.propType]) : body);
   }));
   attachBestPlaysHandlers();
 }

@@ -9,6 +9,8 @@ const { fetchAllWeather } = require('../lib/weather.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
+const { fetchGames } = require('../lib/nflverse-games.js');
+const { teamTrend } = require('../lib/team-trend.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000; // 30 min — team efficiency data doesn't move fast
@@ -30,6 +32,8 @@ module.exports = async function handler(req, res) {
   if (!schedule?.length) return res.status(200).json({ week, games: [], error: 'No schedule found' });
 
   const teamRows = await fetchTeamWeekStats(year);
+  // Scores for the Slate card trend charts only; a failed fetch just leaves points off them.
+  const scheduleRows = await fetchGames().catch(() => null);
   const homeTeams = schedule.map(g => g.homeTeam);
   const weather = await fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {});
 
@@ -39,7 +43,8 @@ module.exports = async function handler(req, res) {
     const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, tw, recencyWindow(tw)) : null;
     const gameWeather = weather[g.homeTeam] || {};
     const model = buildGameModel(homeEff, awayEff, { weather: gameWeather });
-    return { ...g, model, weather: gameWeather };
+    const trend = { home: teamTrend(teamRows, scheduleRows, g.homeAbbr, year, tw), away: teamTrend(teamRows, scheduleRows, g.awayAbbr, year, tw) };
+    return { ...g, model, weather: gameWeather, trend };
   });
 
   const data = { week, year, games, timestamp: Date.now(), elapsed: Date.now() - start };
