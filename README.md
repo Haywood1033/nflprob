@@ -45,12 +45,49 @@ once real results come in, Wilson-score confidence tiers, locked signal badges, 
 - `app.html` — navy design system, Team Model and Anytime TD tabs both live and rendering
   from their respective APIs. Rushing/Receiving/Passing/Accuracy tabs are still placeholders.
 
+## Market & risk signals (new)
+Added in response to a "build these into the model" request after comparing against an
+18-layer marketing description of someone else's prop engine. Each item below maps to one of
+those named layers and was built only where real free data actually supports it — nothing here
+is a label with no logic behind it, and the two gaps are called out as exactly that.
+- `lib/vegas-lines.js` — **real market lines**, not mocked: nflverse's `schedules/games.csv`
+  release (same file `lib/nflverse-games.js` already pulled for grading) carries
+  `spread_line`/`total_line`/moneylines for every game, populated once a book has posted a
+  number — **verified live**: populated from the current week through ~1 week out, genuinely
+  blank further out (that's real market reality, not a bug). Sign convention derived and
+  verified against real rows (see file comment). Also derives key-number "hook" risk (is the
+  spread within 0.5 of 3/7/6/10/4/1/14), a standard 6-point teaser's crossings of those same
+  numbers, and a blowout-risk flag off spread magnitude.
+- `lib/qb-status.js` — **real backup-QB detection**, no roster/depth-chart source needed: the
+  same games.csv file names each game's starting QB; a start is flagged "backup" when it's not
+  this team's own season pass-attempt leader. **Verified live**: correctly flagged Tyler
+  Huntley's start over Lamar Jackson's season-leading volume.
+- `api/team-model.js` now actually uses `away_rest`/`home_rest` from that same file (real,
+  numeric, available even for future weeks) and the QB-backup flag above, both fed into
+  `lib/team-scoring.js`'s existing rest-day and QB-status multipliers — those multipliers
+  existed in the model already but were never being passed real data until now. Each game's API
+  response also carries a `market` object (spread/total/edge-vs-model/key-number/teaser/blowout/
+  QB-status/rest-days/div-game) and `app.html`'s Team Model cards + drawer surface it.
+- **Not built, and not free-data-feasible right now**: public betting/ticket-split "fade" data
+  (Layer 3 of that other engine) has no free source — every real provider (Action Network,
+  VSiN, sportsbook-reported handle) is paid. Defensive-scheme splits (man/zone rate, pressure
+  scheme) aren't available free at useful granularity either.
+- **Not built, but genuinely feasible later**: red-zone/inside-the-10 touch share and special
+  teams/field-position signals both need nflverse's play-by-play release (a much larger
+  per-season file than anything fetched today) — real, free, just a bigger separate build than
+  this pass covered.
+
 ## What's NOT built yet
-- Roster/injury confirmation for the props player pool (biggest real gap right now)
-- Yardage prop distributions (rushing/receiving/passing)
-- Result-grading against actual box scores
+- Yardage prop distributions (rushing/receiving/passing) have scoring modules (`lib/rush-scoring.js`,
+  `lib/rec-scoring.js`, `lib/pass-scoring.js`) and endpoints — check their own in-file notes for
+  calibration status rather than trusting this line, which the rest of this README shows goes stale fast.
+- Result-grading against actual box scores — `lib/grading.js` + `lib/nflverse-games.js` do this
+  for real now (not stubbed, despite an earlier version of this README saying so)
 - The full accuracy/calibration UI (HR engine's `htier` calibration display)
 - Real-season calibration correction for the TD model (needs tracked results, like HR engine had)
+- Play-by-play-derived signals (red-zone touch share, special teams) — see above
+- Market/QB/rest signals above are wired into the Team Model tab only — the player-prop tabs
+  (TD/rush/rec/pass) don't yet inherit the backup-QB or rest-day context
 
 ## Deploy
 Same as HR engine:

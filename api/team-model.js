@@ -6,9 +6,12 @@
 
 const { fetchWeekSchedule } = require('../lib/schedule.js');
 const { fetchAllWeather } = require('../lib/weather.js');
-const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
+const { fetchTeamWeekStats, computeTeamEfficiency, toNflverseAbbr } = require('../lib/nflverse.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
+const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
+const { fetchPlayerWeekStats } = require('../lib/player-stats.js');
+const { qbStatus } = require('../lib/qb-status.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000; // 30 min — team efficiency data doesn't move fast
@@ -31,15 +34,39 @@ module.exports = async function handler(req, res) {
 
   const teamRows = await fetchTeamWeekStats(year);
   const homeTeams = schedule.map(g => g.homeTeam);
-  const weather = await fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {});
+  const [weather, marketGames, playerSeasonRows] = await Promise.all([
+    fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {}),
+    fetchGames(),
+    fetchPlayerWeekStats(year),
+  ]);
 
   const games = schedule.map(g => {
     const tw = Number(week) - 1;
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, tw, recencyWindow(tw)) : null;
     const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, tw, recencyWindow(tw)) : null;
     const gameWeather = weather[g.homeTeam] || {};
-    const model = buildGameModel(homeEff, awayEff, { weather: gameWeather });
-    return { ...g, model, weather: gameWeather };
+
+    // Market context (real spread/total line, rest days, key-number/blowout/teaser flags) —
+    // blank for games far enough out that no book has posted a line yet; see lib/vegas-lines.js.
+    const market = getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr);
+    const homeQbStatus = playerSeasonRows ? qbStatus(market.homeQbName, playerSeasonRows, toNflverseAbbr(g.homeAbbr)) : 'unknown';
+    const awayQbStatus = playerSeasonRows ? qbStatus(market.awayQbName, playerSeasonRows, toNflverseAbbr(g.awayAbbr)) : 'unknown';
+
+    const model = buildGameModel(homeEff, awayEff, {
+      weather: gameWeather,
+      homeRestDays: market.homeRestDays, awayRestDays: market.awayRestDays,
+      homeQbStatus, awayQbStatus,
+    });
+
+    // Model-vs-market edge: positive homeMarginEdge means the model favors the home team by
+    // more than the market line does (and vice versa for away). Only meaningful once a real
+    // line exists for this game.
+    const marketEdge = market.available ? {
+      homeMarginEdge: market.homeSpread != null ? +(model.diff - market.homeSpread).toFixed(1) : null,
+      totalEdge: market.totalLine != null ? +(model.total - market.totalLine).toFixed(1) : null,
+    } : null;
+
+    return { ...g, model, weather: gameWeather, market: { ...market, homeQbStatus, awayQbStatus, marketEdge } };
   });
 
   const data = { week, year, games, timestamp: Date.now(), elapsed: Date.now() - start };
