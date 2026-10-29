@@ -6,6 +6,7 @@ const { computePlayerUsage, computeDefenseAllowedToPosition, anytimeTdProb, getT
 const { recencyWindow, recentGames } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
 const { poolFromRoster } = require('../lib/roster-pool.js');
+const { fetchPbp, computeRedZoneStats, playerRedZoneShare, teamRedZoneTdRate } = require('../lib/red-zone.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
 
@@ -86,9 +87,10 @@ module.exports = async function handler(req, res) {
   const schedule = await fetchWeekSchedule(year, week);
   if (!schedule?.length) return res.status(200).json({ week, players: [], error: 'No schedule found' });
 
-  const [teamRows, playerRows] = await Promise.all([
+  const [teamRows, playerRows, pbpRows] = await Promise.all([
     fetchTeamWeekStats(year),
     fetchPlayerWeekStats(year),
+    fetchPbp(year),
   ]);
 
   if (!playerRows?.length) {
@@ -96,6 +98,9 @@ module.exports = async function handler(req, res) {
   }
 
   const throughWeek = Number(week) - 1;
+  // Real red-zone touch share (lib/red-zone.js, from play-by-play) — null when the fetch
+  // failed, which every lookup below already treats the same as "no red-zone sample yet."
+  const rzStats = pbpRows ? computeRedZoneStats(pbpRows, throughWeek) : null;
   const players = [];
 
   const distinctAbbrs = [...new Set(schedule.flatMap(g => [g.homeAbbr, g.awayAbbr]))];
@@ -103,8 +108,10 @@ module.exports = async function handler(req, res) {
   const rosterCache = Object.fromEntries(rosterEntries);
 
   for (const g of schedule) {
-    const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek) : null;
-    const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, throughWeek) : null;
+    const homeRz = rzStats ? teamRedZoneTdRate(rzStats, toNflverseAbbr(g.homeAbbr)) : null;
+    const awayRz = rzStats ? teamRedZoneTdRate(rzStats, toNflverseAbbr(g.awayAbbr)) : null;
+    const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek, undefined, homeRz) : null;
+    const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, throughWeek, undefined, awayRz) : null;
     const model = buildGameModel(homeEff, awayEff, {});
 
     const teamsInGame = [
@@ -122,9 +129,10 @@ module.exports = async function handler(req, res) {
         const usage = computePlayerUsage(playerRows, candidate.name, throughWeek, recencyWindow(throughWeek));
         if (!usage) continue;
         const defAllowed = computeDefenseAllowedToPosition(playerRows, t.oppAbbr, usage.position, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
-        const prob = anytimeTdProb(usage, defAllowed, t.implied);
+        const rzShare = rzStats ? playerRedZoneShare(rzStats, toNflverseAbbr(t.abbr), usage.playerId) : null;
+        const prob = anytimeTdProb(usage, defAllowed, t.implied, { rzShare });
         if (prob == null) continue;
-        const sig = getTdSignals(usage, defAllowed, model);
+        const sig = getTdSignals(usage, defAllowed, model, rzShare);
         const rosterEntry = getRosterEntry(roster, candidate.name);
 
         players.push({
@@ -135,6 +143,8 @@ module.exports = async function handler(req, res) {
           gameId: g.gameId,
           prob: +prob.toFixed(1),
           touches: usage.touches,
+          rzTouchShare: rzShare?.rzTouchShare ?? null,
+          inside10Share: rzShare?.inside10Share ?? null,
           signals: sig.signals,
           signalCount: sig.count,
           badge: sig.badge,

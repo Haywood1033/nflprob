@@ -6,11 +6,15 @@
 
 const { fetchWeekSchedule } = require('../lib/schedule.js');
 const { fetchAllWeather } = require('../lib/weather.js');
-const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
+const { fetchTeamWeekStats, computeTeamEfficiency, toNflverseAbbr } = require('../lib/nflverse.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
 const { fetchGames } = require('../lib/nflverse-games.js');
 const { teamTrend } = require('../lib/team-trend.js');
+const { getMarketContext } = require('../lib/vegas-lines.js');
+const { fetchPlayerWeekStats } = require('../lib/player-stats.js');
+const { qbStatus } = require('../lib/qb-status.js');
+const { fetchPbp, computeRedZoneStats, teamRedZoneTdRate } = require('../lib/red-zone.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000; // 30 min — team efficiency data doesn't move fast
@@ -32,19 +36,56 @@ module.exports = async function handler(req, res) {
   if (!schedule?.length) return res.status(200).json({ week, games: [], error: 'No schedule found' });
 
   const teamRows = await fetchTeamWeekStats(year);
-  // Scores for the Slate card trend charts only; a failed fetch just leaves points off them.
-  const scheduleRows = await fetchGames().catch(() => null);
   const homeTeams = schedule.map(g => g.homeTeam);
-  const weather = await fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {});
+  // fetchGames() hits nflverse's schedules/games.csv once and is reused for both the Slate
+  // trend charts (scheduleRows/teamTrend) and real market context (marketGames/getMarketContext)
+  // below — same file, no need to fetch it twice.
+  const [weather, marketGames, playerSeasonRows, pbpRows] = await Promise.all([
+    fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {}),
+    fetchGames().catch(() => null),
+    fetchPlayerWeekStats(year),
+    fetchPbp(year),
+  ]);
+  const scheduleRows = marketGames;
+  // Real per-trip red-zone TD rate per team, from play-by-play — see lib/red-zone.js. null
+  // (not fetched/unavailable) falls through computeTeamEfficiency to the honest "no data"
+  // placeholder it already had.
+  const rzStats = pbpRows ? computeRedZoneStats(pbpRows, Number(week) - 1) : null;
 
   const games = schedule.map(g => {
     const tw = Number(week) - 1;
-    const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, tw, recencyWindow(tw)) : null;
-    const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, tw, recencyWindow(tw)) : null;
+    const homeRz = rzStats ? teamRedZoneTdRate(rzStats, toNflverseAbbr(g.homeAbbr)) : null;
+    const awayRz = rzStats ? teamRedZoneTdRate(rzStats, toNflverseAbbr(g.awayAbbr)) : null;
+    const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, tw, recencyWindow(tw), homeRz) : null;
+    const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, tw, recencyWindow(tw), awayRz) : null;
     const gameWeather = weather[g.homeTeam] || {};
-    const model = buildGameModel(homeEff, awayEff, { weather: gameWeather });
+
+    // Market context (real spread/total line, rest days, key-number/blowout/teaser flags) —
+    // blank for games far enough out that no book has posted a line yet; see lib/vegas-lines.js.
+    const market = getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr);
+    const homeQbStatus = playerSeasonRows ? qbStatus(market.homeQbName, playerSeasonRows, toNflverseAbbr(g.homeAbbr)) : 'unknown';
+    const awayQbStatus = playerSeasonRows ? qbStatus(market.awayQbName, playerSeasonRows, toNflverseAbbr(g.awayAbbr)) : 'unknown';
+
+    const model = buildGameModel(homeEff, awayEff, {
+      weather: gameWeather,
+      homeRestDays: market.homeRestDays, awayRestDays: market.awayRestDays,
+      homeQbStatus, awayQbStatus,
+    });
+
+    // Model-vs-market edge: positive homeMarginEdge means the model favors the home team by
+    // more than the market line does (and vice versa for away). Only meaningful once a real
+    // line exists for this game.
+    const marketEdge = market.available ? {
+      homeMarginEdge: market.homeSpread != null ? +(model.diff - market.homeSpread).toFixed(1) : null,
+      totalEdge: market.totalLine != null ? +(model.total - market.totalLine).toFixed(1) : null,
+    } : null;
+
     const trend = { home: teamTrend(teamRows, scheduleRows, g.homeAbbr, year, tw), away: teamTrend(teamRows, scheduleRows, g.awayAbbr, year, tw) };
-    return { ...g, model, weather: gameWeather, trend };
+
+    return {
+      ...g, model, weather: gameWeather, trend,
+      market: { ...market, homeQbStatus, awayQbStatus, marketEdge, homeRedZoneTdRate: homeRz, awayRedZoneTdRate: awayRz },
+    };
   });
 
   const data = { week, year, games, timestamp: Date.now(), elapsed: Date.now() - start };

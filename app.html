@@ -53,6 +53,10 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
 .badge-strongline{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-family:var(--mono);font-weight:700;padding:3px 7px;border-radius:4px;background:rgba(45,212,191,.1);color:var(--teal);border:1px solid rgba(45,212,191,.28)}
 .badge-lean{display:inline-flex;align-items:center;font-size:11.5px;font-family:var(--mono);font-weight:700;padding:3px 7px;border-radius:4px;color:var(--t2);border:1px solid var(--bd2)}
 .badge-tossup{display:inline-flex;align-items:center;font-size:11.5px;font-family:var(--mono);font-weight:600;padding:3px 7px;border-radius:4px;color:var(--t3);border:1px solid var(--bd)}
+.badge-backup{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-family:var(--mono);font-weight:700;padding:3px 7px;border-radius:4px;background:rgba(248,113,113,.1);color:var(--red);border:1px solid rgba(248,113,113,.22)}
+.slate-market-row{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-top:0.5px solid var(--bg3);font-size:11px;color:var(--t3)}
+.slate-market-row .edge-pos{color:var(--teal)}
+.slate-market-row .edge-neg{color:var(--t3)}
 .td-table{width:100%;border-collapse:collapse;font-size:13px}
 .td-table thead th{text-align:left;padding:10px 12px;font-family:var(--mono);font-size:11.5px;font-weight:700;color:var(--t3);border-bottom:1px solid var(--bd);background:var(--bg2)}
 .td-table tbody td{padding:11px 12px;border-bottom:1px solid var(--bd)}
@@ -474,7 +478,7 @@ const filterState = {
   pass: { matchup: 'all', signal: 'all' },
 };
 const TAB_SIGNALS = {
-  td:   ['High Usage', 'Favorable Matchup', 'Hot Streak', 'Shootout Game', 'Featured Role', 'Sample Confidence'],
+  td:   ['High Usage', 'Favorable Matchup', 'Hot Streak', 'Shootout Game', 'Featured Role', 'Red Zone Role', 'Sample Confidence'],
   rush: ['High Usage', 'Favorable Matchup', 'Hot Streak', 'Bellcow Volume', 'Sample Confidence'],
   rec:  ['High Usage', 'Favorable Matchup', 'Hot Streak', 'Featured Target', 'Sample Confidence'],
   pass: ['High Volume', 'Favorable Matchup', 'Hot Streak', 'Pass-Heavy Script', 'Sample Confidence'],
@@ -528,11 +532,12 @@ function attachFilterHandlers(tab, rerenderFn) {
     pill.addEventListener('click', () => { filterState[tab].position = pill.dataset.pos; rerenderFn(rawData[tab]); });
   });
 }
-const SIGNAL_ABBR = { 'High Usage':'USE','High Volume':'VOL','Favorable Matchup':'EDGE','Hot Streak':'HOT','Shootout Game':'SHOOT','Featured Role':'ROLE','Sample Confidence':'CONF','Bellcow Volume':'BCOW','Featured Target':'TGT','Pass-Heavy Script':'SCRIPT' };
+const SIGNAL_ABBR = { 'High Usage':'USE','High Volume':'VOL','Favorable Matchup':'EDGE','Hot Streak':'HOT','Shootout Game':'SHOOT','Featured Role':'ROLE','Red Zone Role':'RZ','Sample Confidence':'CONF','Bellcow Volume':'BCOW','Featured Target':'TGT','Pass-Heavy Script':'SCRIPT' };
 const SIGNAL_DESC = {
   'High Usage':'Meaningful volume above the position baseline','High Volume':'Pass attempts per game above starter baseline',
   'Favorable Matchup':'Opponent allows more than league-average rate to this stat','Hot Streak':'Strong performance in 2+ of last 3 games',
   'Shootout Game':"This week's projected total is 48+ points",'Featured Role':'Elevated role signal for this position',
+  'Red Zone Role':'Real inside-the-10 touch share (from play-by-play) at or above the position baseline',
   'Sample Confidence':'Enough recent volume that the read is not small-sample noise','Bellcow Volume':"Projected carries 16+ this week",
   'Featured Target':"Projected targets 8+ this week",'Pass-Heavy Script':"Projected attempts 36+ this week",
 };
@@ -624,7 +629,8 @@ function playerPanel(p, market) {
   const volL5 = market === 'td' ? p.touches : market === 'rush' ? p.carries : market === 'rec' ? p.targets : p.attempts;
   const tiles = market === 'td'
     ? [['Anytime TD', `${p.prob}%`], ['Fair odds', ppFair(p.prob)], ['Scored in', games.length ? `${scored} of ${games.length}` : '—'],
-       ['Touches (L5)', volL5 ?? '—'], ['Touch share (L3)', ppPct(d?.shareL3)], ['Opp vs position', d?.oppRank ? `${ppOrd(d.oppRank.rank)} of ${d.oppRank.of}` : '—']]
+       ['Touches (L5)', volL5 ?? '—'], ['Touch share (L3)', ppPct(d?.shareL3)],
+       ['Inside-the-10 share', p.inside10Share != null ? ppPct(p.inside10Share) : '—'], ['Opp vs position', d?.oppRank ? `${ppOrd(d.oppRank.rank)} of ${d.oppRank.of}` : '—']]
     : [['Projection', `${p.projected} yds`], ['Floor – ceiling', `${p.floor}–${p.ceiling}`], ['Over projection', games.length ? `${over} of ${games.length}` : '—'],
        [`${d?.volLabel || 'Volume'} (L5)`, volL5 ?? '—'], [market === 'pass' ? 'TDs (season)' : 'Share (L3)', market === 'pass' ? games.reduce((x, g) => x + g.tds, 0) : ppPct(d?.shareL3)], ['Opp vs position', d?.oppRank ? `${ppOrd(d.oppRank.rank)} of ${d.oppRank.of}` : '—']];
   const sigs = (p.signals || []).map(s => `<div class="pp-signal"><span class="pp-tag ${s.active ? 'on' : ''}">${s.active ? '✓' : '·'} ${ppEsc(s.label)}</span><p>${ppEsc(ppSignalReason(s, d, p, market))}</p></div>`).join('');
@@ -933,17 +939,23 @@ function renderTeamModel(d, props) {
     const recC = props.rec.filter(p=>gameTeams.includes(p.team)).map(p=>({...p,statLabel:'Receiving Yds',value:p.projected}));
     const passC = props.pass.filter(p=>gameTeams.includes(p.team)).map(p=>({...p,statLabel:'Passing Yds',value:p.projected}));
     const allProps = [...rushC,...recC,...passC].sort((a,b)=>b.value-a.value);
-    return { g, m, homeTd, awayTd, gameTop, allProps, weatherText: weatherLabel(g.weather), slot: kickoffSlot(g.date) };
+    return { g, m, homeTd, awayTd, gameTop, allProps, market: g.market||{}, weatherText: weatherLabel(g.weather), slot: kickoffSlot(g.date) };
   });
   const cardHTML = (sg,i) => {
-    const {g,m,homeTd,awayTd,gameTop,allProps,weatherText} = sg; const isShootout = m.shootoutSignal; const topProp = allProps[0];
+    const {g,m,homeTd,awayTd,gameTop,allProps,market,weatherText} = sg; const isShootout = m.shootoutSignal; const topProp = allProps[0];
     const awayFav = m.awayWinProb != null && m.homeWinProb != null && m.awayWinProb > m.homeWinProb;
     const homeFav = m.awayWinProb != null && m.homeWinProb != null && m.homeWinProb > m.awayWinProb;
     const favTag = fav => fav ? `<div class="slate-fav-tag">${icon('check')} Projected Winner</div>` : '';
     const mlTier = mlLeanTier(m.homeWinProb);
+    const backupTeam = market.homeQbStatus==='backup'?g.homeTeam:market.awayQbStatus==='backup'?g.awayTeam:null;
+    const riskBadges = [
+      backupTeam?`<span class="badge-backup">${backupTeam} Backup QB</span>`:'',
+      market.keyNumber?.onHook?`<span class="badge-strongline">On The Hook (${market.keyNumber.nearestKeyNumber})</span>`:'',
+      market.blowoutRisk?`<span class="badge-lean">${market.blowoutRisk==='high'?'High':'Mod'} Blowout Risk</span>`:'',
+    ].filter(Boolean).join('');
     return `<div class="slate-card${isShootout?' shootout':''}" data-slate-idx="${i}">
       <div class="slate-hdr"><div class="slate-weather">${weatherText?icon('sun','color:var(--t3)')+' '+weatherText:''}</div>
-      <div style="display:flex;gap:6px">${isShootout?`<span class="badge-shootout">${icon('flame')} Shootout</span>`:m.lowScoringSignal?`<span class="badge-lowscore">${icon('shield')} Low Scoring</span>`:''}${mlTier?ML_LEAN_BADGE[mlTier]:''}</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${isShootout?`<span class="badge-shootout">${icon('flame')} Shootout</span>`:m.lowScoringSignal?`<span class="badge-lowscore">${icon('shield')} Low Scoring</span>`:''}${mlTier?ML_LEAN_BADGE[mlTier]:''}${riskBadges}</div></div>
       <div class="slate-matchup"><div class="slate-team${awayFav?' favored':''}"><div class="slate-logo-wrap"><img class="slate-logo" src="${espnLogoUrl(g.awayAbbr)}" alt="${g.awayTeam}" onerror="this.parentElement.style.visibility='hidden'"></div>
       <div class="slate-team-name">${g.awayTeam}</div><div class="slate-team-implied">${m.awayImplied??'—'}</div>${favTag(awayFav)}</div>
       <div class="slate-vs">@</div><div class="slate-team${homeFav?' favored':''}"><div class="slate-logo-wrap"><img class="slate-logo" src="${espnLogoUrl(g.homeAbbr)}" alt="${g.homeTeam}" onerror="this.parentElement.style.visibility='hidden'"></div>
@@ -951,6 +963,7 @@ function renderTeamModel(d, props) {
       <div class="slate-meta-row"><div class="slate-meta-item"><div class="slate-meta-val">${m.total??'—'}</div><div class="slate-meta-lbl">Total</div></div>
       <div class="slate-meta-item center"><div class="slate-meta-val" style="color:${awayFav?'var(--teal)':'var(--t3)'}">${m.awayWinProb??'—'}%</div><div class="slate-meta-lbl">${g.awayTeam} Win</div></div>
       <div class="slate-meta-item"><div class="slate-meta-val" style="color:${homeFav?'var(--teal)':'var(--t3)'}">${m.homeWinProb??'—'}%</div><div class="slate-meta-lbl">${g.homeTeam} Win</div></div></div>
+      ${market.available?`<div class="slate-market-row"><span>Vegas: ${market.homeSpread<0?g.homeTeam+' '+market.homeSpread:g.awayTeam+' '+(-market.homeSpread)} · O/U ${market.totalLine}</span><span class="${market.marketEdge?.totalEdge>0?'edge-pos':''}">${market.marketEdge?.totalEdge!=null?(market.marketEdge.totalEdge>0?'+':'')+market.marketEdge.totalEdge+' vs model':''}</span></div>`:''}
       <div class="slate-targets">${gameTop?`<div class="slate-target-row"><span class="slate-target-lbl">Top Target</span><span class="slate-target-val">${gameTop.name}</span><span class="slate-target-prob">${gameTop.prob}%</span></div>`:''}
       ${awayTd[0]?`<div class="slate-target-row"><span class="slate-target-lbl">${g.awayTeam} TD</span><span class="slate-target-val">${awayTd[0].name}</span><span class="slate-target-prob">${awayTd[0].prob}%</span></div>`:''}
       ${homeTd[0]?`<div class="slate-target-row"><span class="slate-target-lbl">${g.homeTeam} TD</span><span class="slate-target-val">${homeTd[0].name}</span><span class="slate-target-prob">${homeTd[0].prob}%</span></div>`:''}</div>
@@ -973,7 +986,7 @@ function renderTeamModel(d, props) {
 }
 function openSlateDrawer(idx) {
   const sg = slateGames[idx]; if (!sg) return;
-  const {g,m,homeTd,awayTd,allProps,weatherText} = sg; const isShootout = m.shootoutSignal;
+  const {g,m,homeTd,awayTd,allProps,market,weatherText} = sg; const isShootout = m.shootoutSignal;
   const top3Row = p => `<div class="slate-target-row"><span class="slate-target-val">${p.name} <span style="color:var(--t3)">(${p.position||p.team})</span></span><span class="slate-target-prob">${p.prob}%</span></div>`;
   const propRow = p => `<div class="slate-target-row"><span class="slate-target-val">${p.name} — ${p.statLabel}</span><span class="slate-target-prob">${p.value}</span></div>`;
   const mlTier = mlLeanTier(m.homeWinProb);
@@ -991,7 +1004,18 @@ function openSlateDrawer(idx) {
     <div class="slate-meta-item"><div class="slate-meta-val" style="color:${homeFav?'var(--teal)':'var(--t3)'}">${m.homeWinProb??'—'}%</div><div class="slate-meta-lbl">${g.homeTeam} Win</div></div></div>
     ${gameTrendHTML(g)}<div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">${g.awayTeam} — Top TD Threats</div>${awayTd.slice(0,3).map(top3Row).join('')||'<div class="gs-meta">No data</div>'}</div>
     <div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">${g.homeTeam} — Top TD Threats</div>${homeTd.slice(0,3).map(top3Row).join('')||'<div class="gs-meta">No data</div>'}</div>
-    <div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">Top Prop Projections (Game)</div>${allProps.slice(0,5).map(propRow).join('')||'<div class="gs-meta">No data</div>'}</div>`;
+    <div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">Top Prop Projections (Game)</div>${allProps.slice(0,5).map(propRow).join('')||'<div class="gs-meta">No data</div>'}</div>
+    ${market.available?`<div class="slate-modal-section" style="padding:12px 0"><div class="slate-modal-section-hdr">Market &amp; Risk Signals</div>
+      <div class="slate-target-row"><span class="slate-target-lbl">Vegas Spread</span><span class="slate-target-val">${market.homeSpread<0?g.homeTeam+' '+market.homeSpread:g.awayTeam+' '+(-market.homeSpread)}</span></div>
+      <div class="slate-target-row"><span class="slate-target-lbl">Vegas Total</span><span class="slate-target-val">${market.totalLine}${market.marketEdge?.totalEdge!=null?` <span style="color:var(--t3)">(model ${market.marketEdge.totalEdge>0?'+':''}${market.marketEdge.totalEdge})</span>`:''}</span></div>
+      ${market.marketEdge?.homeMarginEdge!=null?`<div class="slate-target-row"><span class="slate-target-lbl">Model vs Market (margin)</span><span class="slate-target-val">${market.marketEdge.homeMarginEdge>0?g.homeTeam:g.awayTeam} by ${Math.abs(market.marketEdge.homeMarginEdge)} more pts</span></div>`:''}
+      ${market.keyNumber?`<div class="slate-target-row"><span class="slate-target-lbl">Key Number</span><span class="slate-target-val">${market.keyNumber.onHook?'On the hook at '+market.keyNumber.nearestKeyNumber:market.keyNumber.distance+' pts from '+market.keyNumber.nearestKeyNumber}</span></div>`:''}
+      ${market.teaserCrossings?.length?`<div class="slate-target-row"><span class="slate-target-lbl">6pt Teaser Crosses</span><span class="slate-target-val">${market.teaserCrossings.join(', ')}</span></div>`:''}
+      ${market.blowoutRisk?`<div class="slate-target-row"><span class="slate-target-lbl">Blowout Risk</span><span class="slate-target-val" style="text-transform:capitalize">${market.blowoutRisk}</span></div>`:''}
+      <div class="slate-target-row"><span class="slate-target-lbl">Rest Days</span><span class="slate-target-val">${g.awayTeam} ${market.awayRestDays??'—'} · ${g.homeTeam} ${market.homeRestDays??'—'}</span></div>
+      ${market.awayQbStatus==='backup'||market.homeQbStatus==='backup'?`<div class="slate-target-row"><span class="slate-target-lbl">QB Status</span><span class="slate-target-val" style="color:var(--red)">${market.awayQbStatus==='backup'?g.awayTeam+' backup ('+market.awayQbName+')':''}${market.awayQbStatus==='backup'&&market.homeQbStatus==='backup'?' · ':''}${market.homeQbStatus==='backup'?g.homeTeam+' backup ('+market.homeQbName+')':''}</span></div>`:''}
+      ${market.divGame?`<div class="slate-target-row"><span class="slate-target-lbl">Division Game</span><span class="slate-target-val">Yes</span></div>`:''}
+      </div>`:''}`;
   openDrawer(header, body);
 }
 async function loadTdProps() {
