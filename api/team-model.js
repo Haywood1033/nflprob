@@ -9,7 +9,9 @@ const { fetchAllWeather } = require('../lib/weather.js');
 const { fetchTeamWeekStats, computeTeamEfficiency, toNflverseAbbr } = require('../lib/nflverse.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { recencyWindow } = require('../lib/recency-window.js');
-const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
+const { fetchGames } = require('../lib/nflverse-games.js');
+const { teamTrend } = require('../lib/team-trend.js');
+const { getMarketContext } = require('../lib/vegas-lines.js');
 const { fetchPlayerWeekStats } = require('../lib/player-stats.js');
 const { qbStatus } = require('../lib/qb-status.js');
 const { fetchPbp, computeRedZoneStats, teamRedZoneTdRate } = require('../lib/red-zone.js');
@@ -35,12 +37,16 @@ module.exports = async function handler(req, res) {
 
   const teamRows = await fetchTeamWeekStats(year);
   const homeTeams = schedule.map(g => g.homeTeam);
+  // fetchGames() hits nflverse's schedules/games.csv once and is reused for both the Slate
+  // trend charts (scheduleRows/teamTrend) and real market context (marketGames/getMarketContext)
+  // below — same file, no need to fetch it twice.
   const [weather, marketGames, playerSeasonRows, pbpRows] = await Promise.all([
     fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {}),
-    fetchGames(),
+    fetchGames().catch(() => null),
     fetchPlayerWeekStats(year),
     fetchPbp(year),
   ]);
+  const scheduleRows = marketGames;
   // Real per-trip red-zone TD rate per team, from play-by-play — see lib/red-zone.js. null
   // (not fetched/unavailable) falls through computeTeamEfficiency to the honest "no data"
   // placeholder it already had.
@@ -74,7 +80,12 @@ module.exports = async function handler(req, res) {
       totalEdge: market.totalLine != null ? +(model.total - market.totalLine).toFixed(1) : null,
     } : null;
 
-    return { ...g, model, weather: gameWeather, market: { ...market, homeQbStatus, awayQbStatus, marketEdge, homeRedZoneTdRate: homeRz, awayRedZoneTdRate: awayRz } };
+    const trend = { home: teamTrend(teamRows, scheduleRows, g.homeAbbr, year, tw), away: teamTrend(teamRows, scheduleRows, g.awayAbbr, year, tw) };
+
+    return {
+      ...g, model, weather: gameWeather, trend,
+      market: { ...market, homeQbStatus, awayQbStatus, marketEdge, homeRedZoneTdRate: homeRz, awayRedZoneTdRate: awayRz },
+    };
   });
 
   const data = { week, year, games, timestamp: Date.now(), elapsed: Date.now() - start };

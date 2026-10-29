@@ -8,6 +8,8 @@ const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js
 const { poolFromRoster } = require('../lib/roster-pool.js');
 const { fetchPbp, computeRedZoneStats, playerRedZoneShare, teamRedZoneTdRate } = require('../lib/red-zone.js');
 
+const { playerDetail } = require('../lib/player-detail.js');
+
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
 const TD_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
@@ -149,6 +151,7 @@ module.exports = async function handler(req, res) {
           ci: sig.ci,
           injured: !isHealthy(roster, candidate.name),
           injuryStatus: rosterEntry?.injuryStatus || null,
+          detail: playerDetail(playerRows, { name: candidate.name, position: usage.position, oppAbbr: toNflverseAbbr(t.oppAbbr), market: 'td', throughWeek }),
         });
       }
     }
