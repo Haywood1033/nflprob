@@ -7,6 +7,8 @@ const { recencyWindow, recentGames } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
 const { poolFromRoster } = require('../lib/roster-pool.js');
 const { fetchPbp, computeRedZoneStats, playerRedZoneShare, teamRedZoneTdRate } = require('../lib/red-zone.js');
+const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
+const { normalizeQbName } = require('../lib/qb-status.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
 
@@ -87,10 +89,11 @@ module.exports = async function handler(req, res) {
   const schedule = await fetchWeekSchedule(year, week);
   if (!schedule?.length) return res.status(200).json({ week, players: [], error: 'No schedule found' });
 
-  const [teamRows, playerRows, pbpRows] = await Promise.all([
+  const [teamRows, playerRows, pbpRows, marketGames] = await Promise.all([
     fetchTeamWeekStats(year),
     fetchPlayerWeekStats(year),
     fetchPbp(year),
+    fetchGames().catch(() => null),
   ]);
 
   if (!playerRows?.length) {
@@ -121,9 +124,31 @@ module.exports = async function handler(req, res) {
 
     for (const t of teamsInGame) {
       const roster = rosterCache[t.abbr];
+      const nflverseTeam = toNflverseAbbr(t.abbr);
 
-      const pool = tdPoolFromRoster(roster, playerRows, 9, throughWeek)
+      let pool = tdPoolFromRoster(roster, playerRows, 9, throughWeek)
         || topUsagePlayersForTeamFallback(playerRows, t.abbr, throughWeek);
+
+      // nflverse's own confirmed-starter field (the same one lib/qb-status.js uses) overrides
+      // the pool builders' lastWeekPlayed-based QB pick — that signal is blind to a just-
+      // returning starter's own upcoming game, since his last RECORDED game is still from
+      // before the injury (see lib/qb-status.js's pickConfirmedStarter comment for the real
+      // case — Lamar Jackson's return — this fixes). Drops any OTHER QB on this team from the
+      // pool entirely (he's not actually playing, not just less likely to) and makes sure the
+      // confirmed starter is modeled even if the pool builder ranked him too low to include.
+      const market = getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr);
+      const confirmedQbName = t.abbr === g.homeAbbr ? market.homeQbName : market.awayQbName;
+      if (confirmedQbName) {
+        pool = pool.filter(c => {
+          const isQb = playerRows.some(r => r.player_display_name === c.name && r.team === nflverseTeam && r.position === 'QB');
+          return !isQb || normalizeQbName(c.name) === normalizeQbName(confirmedQbName);
+        });
+        const alreadyIncluded = pool.some(c => normalizeQbName(c.name) === normalizeQbName(confirmedQbName));
+        const hasRealData = playerRows.some(r => r.player_display_name === confirmedQbName && r.team === nflverseTeam && r.position === 'QB');
+        if (!alreadyIncluded && hasRealData) {
+          pool.push({ name: confirmedQbName, position: 'QB', histTeam: nflverseTeam, volume: 0, lastWeekPlayed: -1 });
+        }
+      }
 
       for (const candidate of pool) {
         const usage = computePlayerUsage(playerRows, candidate.name, throughWeek, recencyWindow(throughWeek));
