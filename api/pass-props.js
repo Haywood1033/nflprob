@@ -7,6 +7,8 @@ const { computePassUsage, computePassDefenseAllowed, projectPassYards, getPassSi
 const { recencyWindow, recentGames } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
 const { poolFromRoster } = require('../lib/roster-pool.js');
+const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
+const { pickConfirmedStarter } = require('../lib/qb-status.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
 
@@ -63,9 +65,10 @@ module.exports = async function handler(req, res) {
   const homeTeams = schedule.map(g => g.homeTeam);
   const distinctAbbrs = [...new Set(schedule.flatMap(g => [g.homeAbbr, g.awayAbbr]))];
 
-  const [weather, rosterEntries] = await Promise.all([
+  const [weather, rosterEntries, marketGames] = await Promise.all([
     fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {}),
     Promise.all(distinctAbbrs.map(async abbr => [abbr, await fetchTeamRoster(abbr)])),
+    fetchGames().catch(() => null),
   ]);
   const rosterCache = Object.fromEntries(rosterEntries);
 
@@ -89,7 +92,12 @@ module.exports = async function handler(req, res) {
       const candidates = poolFromRoster(roster, playerRows, ['QB'], 'attempts', 3, throughWeek)
         || starterQbForTeamFallback(playerRows, t.abbr, throughWeek);
       if (!candidates?.length) continue;
-      const starter = candidates[0];
+      // nflverse's own confirmed-starter field (same one lib/qb-status.js uses) overrides the
+      // lastWeekPlayed-based guess above whenever it's available — see pickConfirmedStarter's
+      // comment in lib/qb-status.js for the real case (Lamar Jackson's return) this fixes.
+      const market = getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr);
+      const confirmedName = t.abbr === g.homeAbbr ? market.homeQbName : market.awayQbName;
+      const starter = pickConfirmedStarter(candidates, confirmedName);
 
       const usage = computePassUsage(playerRows, starter.name, starter.histTeam, throughWeek, recencyWindow(throughWeek));
       if (!usage) continue;
