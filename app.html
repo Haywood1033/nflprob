@@ -1483,14 +1483,22 @@ function attachManualParlayHandlers(legPool) {
   }));
 }
 
-// ═══════════════ DFS LINEUP BUILDER (DK Showdown: Captain + 5 FLEX) ═══════════════
+// ═══════════════ DFS LINEUP BUILDER (DK Showdown + DK Classic) ═══════════════
 // Upload a DK salary CSV/XLSX, run nflprob's real per-player models (same pass/rush/rec/TD
 // functions every other tab uses) against every player in the file, let the user lock "must
-// play" players or force a specific Captain, then solve the true salary-cap-optimal lineup
-// server-side (exact knapsack, not a heuristic — see lib/dfs-optimizer.js). Single-game
-// Showdown only; a multi-game Classic slate has a different roster shape entirely.
+// play" players (or force a Captain, Showdown only) before solving the true salary-cap-optimal
+// lineup server-side (exact knapsack, not a heuristic — lib/dfs-optimizer.js for Showdown's
+// Captain + 5 FLEX, lib/classic-optimizer.js for Classic's QB/RB/RB/WR/WR/WR/TE/FLEX/DST).
+// Slate type is auto-detected from the upload itself (dfsIngestRows) — DK's own "Roster
+// Position" column distinguishes them (Showdown carries a "CPT" value, Classic never does).
 
-const dfsState = { players: [], awayAbbr: null, homeAbbr: null, year: null, locked: new Set(), captainLock: null, excluded: new Set(), lastResult: null, lineupCount: 20, projecting: false };
+const dfsState = {
+  players: [], slateType: null, // 'showdown' | 'classic'
+  awayAbbr: null, homeAbbr: null, // showdown only — one game
+  games: [], // classic only — every game represented in the upload
+  year: null, locked: new Set(), captainLock: null, excluded: new Set(),
+  lastResult: null, lineupCount: 20, projecting: false,
+};
 
 function dfsSplitCSVLine(line) {
   const out = []; let cur = ''; let inQuotes = false;
@@ -1523,11 +1531,12 @@ function dfsRowsFromAOA(aoa) {
 
 function dfsUploadHTML() {
   return `<div class="dfs-upload-zone" id="dfsDropZone">
-    <h3 style="font-size:16px;margin-bottom:8px">Upload a DraftKings Showdown salary file</h3>
+    <h3 style="font-size:16px;margin-bottom:8px">Upload a DraftKings salary file</h3>
     <div style="margin:0 auto 18px;color:var(--t3);font-size:12px;max-width:440px;line-height:1.6">
-      CSV or Excel export from a DK Showdown (Captain + FLEX, single-game) contest. We run
-      nflprob's own matchup-adjusted projections against every player in the file — then you
-      lock key players or force a Captain before building the salary-cap-optimal lineup.
+      Showdown (Captain + FLEX, single-game) or Classic (QB/RB/RB/WR/WR/WR/TE/FLEX/DST,
+      full-slate) — CSV or Excel export, auto-detected from the file. We run nflprob's own
+      matchup-adjusted projections against every player, then you lock key players (or force a
+      Captain, Showdown only) before building the salary-cap-optimal lineup.
     </div>
     <label class="dfs-upload-btn">${icon('bolt')} Choose File
       <input type="file" id="dfsFileInput" accept=".csv,.xlsx,.xls" style="display:none">
@@ -1576,20 +1585,71 @@ function dfsProcessFile(file) {
   if (isExcel) reader.readAsArrayBuffer(file); else reader.readAsText(file);
 }
 
+// DK's "Game Info" cell looks like "AWAY@HOME MM/DD/YYYY HH:MMAM/PM ET" (or a bye/postponed
+// placeholder, which this deliberately doesn't match — such a row has no real game to project
+// against). Shared by both slate types: Showdown reads it once (row 0, the whole file is one
+// game); Classic reads it per row (each player can be in a different game).
+function dfsParseGameInfo(gameInfo) {
+  return (gameInfo || '').match(/^(\w+)@(\w+)\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+}
+
+// Auto-detects Showdown vs Classic from DK's own "Roster Position" column — Showdown always
+// carries a "CPT" value (the 1.5x-salary captain-priced duplicate row every player gets);
+// Classic never does (one row per player, real position slots only).
 function dfsIngestRows(rows) {
+  const isShowdown = rows.some(r => (r['Roster Position'] || '').toUpperCase() === 'CPT');
+  if (isShowdown) dfsIngestShowdownRows(rows);
+  else dfsIngestClassicRows(rows);
+}
+
+function dfsIngestShowdownRows(rows) {
   const statusEl = document.getElementById('dfsUploadStatus');
   const flexRows = rows.filter(r => (r['Roster Position'] || '').toUpperCase() === 'FLEX');
   if (!flexRows.length) { statusEl.innerHTML = `<span style="color:var(--red)">No FLEX rows found — is this a DK Showdown salary file?</span>`; return; }
-  const gameInfo = rows[0]['Game Info'] || '';
-  const m = gameInfo.match(/^(\w+)@(\w+)\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  const m = dfsParseGameInfo(rows[0]['Game Info']);
   if (!m) { statusEl.innerHTML = `<span style="color:var(--red)">Couldn't read the matchup from the Game Info column</span>`; return; }
   dfsState.players = flexRows.map(r => ({
     id: r.ID, position: r.Position, name: r.Name, salary: Number(r.Salary) || 0,
     teamAbbrev: r.TeamAbbrev, avgPointsPerGame: Number(r.AvgPointsPerGame) || 0, status: r.Status || '',
   }));
-  dfsState.awayAbbr = m[1]; dfsState.homeAbbr = m[2]; dfsState.year = m[5];
+  dfsState.slateType = 'showdown';
+  dfsState.awayAbbr = m[1]; dfsState.homeAbbr = m[2]; dfsState.year = m[5]; dfsState.games = [];
   dfsState.locked = new Set(); dfsState.captainLock = null; dfsState.excluded = new Set(); dfsState.lastResult = null;
   dfsFetchProjections(); // renders the table itself (loading state first, then with Proj Pts filled in)
+}
+
+// Classic: one row per player (no CPT/FLEX salary duplication the way Showdown has), each
+// carrying its OWN matchup — parsed per row, not just once from the header row, since a full
+// slate spans many different games.
+function dfsIngestClassicRows(rows) {
+  const statusEl = document.getElementById('dfsUploadStatus');
+  const VALID_POS = new Set(['QB', 'RB', 'WR', 'TE', 'DST']);
+  const players = [];
+  let year = null, unmatchedGameInfo = 0;
+  for (const r of rows) {
+    // DK's "Position" column on a Classic file is already the base position (RB/WR/etc.) —
+    // "Roster Position" is the one that sometimes carries combined eligibility like "RB/FLEX",
+    // which is a slot-eligibility detail the optimizer derives itself (lib/classic-optimizer.js's
+    // 3 valid FLEX scenarios) and doesn't need from the file.
+    const pos = (r.Position || '').toUpperCase();
+    if (!VALID_POS.has(pos)) continue; // skips a K row if present — Classic DK doesn't use kickers, but defend against a stray one anyway
+    const m = dfsParseGameInfo(r['Game Info']);
+    if (!m) { unmatchedGameInfo++; continue; }
+    if (!year) year = m[5];
+    players.push({
+      id: r.ID, position: pos, name: r.Name, salary: Number(r.Salary) || 0,
+      teamAbbrev: r.TeamAbbrev, avgPointsPerGame: Number(r.AvgPointsPerGame) || 0, status: r.Status || '',
+      awayAbbr: m[1], homeAbbr: m[2],
+    });
+  }
+  if (!players.length) { statusEl.innerHTML = `<span style="color:var(--red)">No usable QB/RB/WR/TE/DST rows with a readable Game Info matchup found — is this a DK Classic salary file?</span>`; return; }
+
+  dfsState.players = players;
+  dfsState.slateType = 'classic';
+  dfsState.games = [...new Map(players.map(p => [p.awayAbbr + '@' + p.homeAbbr, { awayAbbr: p.awayAbbr, homeAbbr: p.homeAbbr }])).values()];
+  dfsState.year = year; dfsState.awayAbbr = null; dfsState.homeAbbr = null;
+  dfsState.locked = new Set(); dfsState.captainLock = null; dfsState.excluded = new Set(); dfsState.lastResult = null;
+  dfsFetchProjections();
 }
 
 // Runs the same model the "Build Lineup(s)" step uses, but just to populate a "Proj Pts"
@@ -1598,13 +1658,23 @@ function dfsIngestRows(rows) {
 // only after a lineup's already been built. Fires once right after upload and re-renders the
 // table when it resolves; failure is non-fatal (the table stays usable with DK's own Avg Pts
 // column, just without this one filled in).
+// Endpoint + request-body shape differ by slate type: Showdown needs the one shared
+// awayAbbr/homeAbbr (every row plays in that one game); Classic needs none at the top level —
+// each row already carries its own (see dfsIngestClassicRows).
+function dfsEndpoint() { return dfsState.slateType === 'classic' ? '/api/classic-optimizer' : '/api/lineup-optimizer'; }
+function dfsBasePayload() {
+  return dfsState.slateType === 'classic'
+    ? { players: dfsState.players, year: dfsState.year }
+    : { players: dfsState.players, awayAbbr: dfsState.awayAbbr, homeAbbr: dfsState.homeAbbr, year: dfsState.year };
+}
+
 async function dfsFetchProjections() {
   if (!dfsState.players.length) return;
   dfsState.projecting = true;
   renderDfsPlayerTable();
   try {
-    const payload = { players: dfsState.players, awayAbbr: dfsState.awayAbbr, homeAbbr: dfsState.homeAbbr, year: dfsState.year, lineupCount: 1 };
-    const res = await fetch('/api/lineup-optimizer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const payload = { ...dfsBasePayload(), lineupCount: 1 };
+    const res = await fetch(dfsEndpoint(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await res.json();
     if (Array.isArray(data.players)) {
       const byId = {}; data.players.forEach(p => { byId[p.id] = p; });
@@ -1619,11 +1689,12 @@ async function dfsFetchProjections() {
 }
 
 function dfsResetUpload() {
-  dfsState.players = []; dfsState.lastResult = null;
+  dfsState.players = []; dfsState.lastResult = null; dfsState.slateType = null; dfsState.games = [];
   loadDfsOptimizer();
 }
 
 function renderDfsPlayerTable() {
+  const isClassic = dfsState.slateType === 'classic';
   const sorted = [...dfsState.players].sort((a, b) => b.salary - a.salary);
   const rows = sorted.map(p => {
     const locked = dfsState.locked.has(p.id);
@@ -1644,20 +1715,24 @@ function renderDfsPlayerTable() {
       <td>${p.status ? `<span style="color:var(--red);font-family:var(--mono);font-size:10px">${p.status}</span>` : ''}</td>
       <td><div style="display:flex;gap:4px">
         <span class="dfs-ctrl${locked ? ' on' : ''}" data-dfs-lock="${p.id}" title="Must be in the final lineup">LOCK</span>
-        <span class="dfs-ctrl dfs-ctrl-cpt${isCaptain ? ' on' : ''}" data-dfs-cpt="${p.id}" title="Force this player as Captain">CPT</span>
+        ${isClassic ? '' : `<span class="dfs-ctrl dfs-ctrl-cpt${isCaptain ? ' on' : ''}" data-dfs-cpt="${p.id}" title="Force this player as Captain">CPT</span>`}
         <span class="dfs-ctrl dfs-ctrl-x${excluded ? ' on' : ''}" data-dfs-exclude="${p.id}" title="Never include this player">OUT</span>
       </div></td>
     </tr>`;
   }).join('');
   const lockedCount = dfsState.locked.size + (dfsState.captainLock && !dfsState.locked.has(dfsState.captainLock) ? 1 : 0);
-  const overLocked = lockedCount > 6;
+  const rosterSize = isClassic ? 9 : 6;
+  const overLocked = lockedCount > rosterSize;
+  const headerLabel = isClassic
+    ? `Classic — ${dfsState.games.length} game${dfsState.games.length===1?'':'s'}`
+    : `${dfsState.awayAbbr} @ ${dfsState.homeAbbr}`;
   document.getElementById('content').innerHTML = `
     <div class="filter-bar">
-      <div style="font-family:var(--mono);font-size:12px;color:var(--t1);font-weight:600">${dfsState.awayAbbr} @ ${dfsState.homeAbbr}</div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--t1);font-weight:600">${headerLabel}</div>
       <span class="filter-count">${dfsState.players.length} players loaded</span>
       <span class="dfs-link-btn" id="dfsResetLink" style="margin-left:14px">upload a different file</span>
     </div>
-    <div style="font-size:10px;font-family:var(--mono);color:var(--t3);margin-bottom:4px">LOCK = must be in the lineup &nbsp;·&nbsp; CPT = force as Captain (implies LOCK) &nbsp;·&nbsp; OUT = exclude entirely</div>
+    <div style="font-size:10px;font-family:var(--mono);color:var(--t3);margin-bottom:4px">LOCK = must be in the lineup${isClassic ? '' : ' &nbsp;·&nbsp; CPT = force as Captain (implies LOCK)'} &nbsp;·&nbsp; OUT = exclude entirely</div>
     <div style="font-size:10px;font-family:var(--mono);color:var(--t3);margin-bottom:12px">Avg Pts = DK's season average (from the uploaded file) &nbsp;·&nbsp; Proj Pts = this app's own model for THIS matchup specifically &nbsp;·&nbsp; MODEL = real pass/rush/rec projection, EST = recency-average fallback (DST/K, or no usage data found) &nbsp;·&nbsp; <span style="color:var(--amber)">⚠ THIN SAMPLE</span> = barely any track record behind the number (e.g. a brand-new starter) — the model has almost nothing real to go on here, so treat it with extra caution</div>
     <div class="table-scroll"><table class="td-table"><thead><tr><th>Pos</th><th>Player</th><th>Team</th><th class="num-col">Salary</th><th class="num-col">Avg Pts</th><th class="num-col">Proj Pts</th><th>Status</th><th>Controls</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
@@ -1667,7 +1742,7 @@ function renderDfsPlayerTable() {
     </div>
     <div style="margin-top:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
       <div class="dfs-build-btn${overLocked ? ' disabled' : ''}" id="dfsBuildBtn">${icon('bolt')} Build ${dfsState.lineupCount>1?dfsState.lineupCount+' Lineups':'Optimal Lineup'}</div>
-      <div id="dfsBuildStatus" style="font-size:11px;color:${overLocked ? 'var(--red)' : 'var(--t3)'}">${overLocked ? 'Too many locked players for a 6-man roster — unlock some first' : ''}</div>
+      <div id="dfsBuildStatus" style="font-size:11px;color:${overLocked ? 'var(--red)' : 'var(--t3)'}">${overLocked ? `Too many locked players for a ${rosterSize}-man roster — unlock some first` : ''}</div>
     </div>
     <div id="dfsResults" style="margin-top:20px"></div>`;
   document.getElementById('dfsResetLink').addEventListener('click', dfsResetUpload);
@@ -1699,18 +1774,20 @@ async function dfsBuildLineup() {
   const statusEl = document.getElementById('dfsBuildStatus');
   statusEl.style.color = 'var(--t3)';
   statusEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px"><span class="spinner" style="width:12px;height:12px;margin:0"></span> Optimizing against live matchup data…</span>`;
+  const isClassic = dfsState.slateType === 'classic';
   try {
     const payload = {
-      players: dfsState.players, awayAbbr: dfsState.awayAbbr, homeAbbr: dfsState.homeAbbr, year: dfsState.year,
-      lockedIds: [...dfsState.locked], captainLockId: dfsState.captainLock, excludedIds: [...dfsState.excluded],
+      ...dfsBasePayload(),
+      lockedIds: [...dfsState.locked], excludedIds: [...dfsState.excluded],
       lineupCount: dfsState.lineupCount,
+      ...(isClassic ? {} : { captainLockId: dfsState.captainLock }),
     };
-    const res = await fetch('/api/lineup-optimizer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const res = await fetch(dfsEndpoint(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await res.json();
     if (data.error) { statusEl.style.color = 'var(--red)'; statusEl.textContent = data.error; return; }
     statusEl.textContent = '';
     dfsState.lastResult = data;
-    renderDfsResults(data);
+    if (isClassic) renderClassicResults(data); else renderDfsResults(data);
   } catch (e) {
     statusEl.style.color = 'var(--red)'; statusEl.textContent = 'Request failed: ' + e.message;
   }
@@ -1836,6 +1913,88 @@ function renderDfsResults(data) {
     const header = `<div class="dd-name">${p.name}</div><div class="dd-sub">${p.pos} · ${p.team} · $${p.salary.toLocaleString()}</div>`;
     const body = `<div class="detail-grid"><div><div class="detail-block-hdr">Projection</div>
       <div class="detail-sig-row"><span>Proj. Points (FLEX)</span><span style="color:var(--teal);font-family:var(--mono)">${p.points.toFixed(2)}</span></div>
+      <div class="detail-sig-row"><span>DK Avg Pts/Game (provided)</span><span style="font-family:var(--mono)">${p.avgPointsPerGame}</span></div>
+      <div class="detail-sig-row"><span>Source</span><span style="font-family:var(--mono);color:${p.modeled ? 'var(--teal)' : 'var(--t3)'}">${p.modeled ? 'nflprob model' : 'recency estimate'}</span></div>
+      ${p.note ? `<div class="detail-sig-desc" style="margin-top:6px">${p.note}</div>` : ''}</div></div>`;
+    openDrawer(header, body);
+  }));
+}
+
+// DK Classic results — same shape of work as renderDfsResults (exposure summary, all-player
+// table, detail drawer) but the lineup card itself is simpler: 9 flat legs with no Captain
+// multiplier, position labels standing in for the CPT star, and no Core/correlation block —
+// lib/classic-optimizer.js doesn't build one yet (see its module comment: a Classic slate's
+// stacks can span multiple games, a bigger correlation model than Showdown's single-game one).
+function renderClassicResults(data) {
+  const { lineups, games, players, week } = data;
+  const exposureCount = {};
+  const playerMeta = {};
+  lineups.forEach(l => {
+    l.players.forEach(p => {
+      exposureCount[p.id] = (exposureCount[p.id] || 0) + 1;
+      playerMeta[p.id] = p;
+    });
+  });
+  const ROSTER_ORDER = { QB: 0, RB: 1, WR: 2, TE: 3, DST: 4 };
+  const legHTML = (p) => `<div class="parlay-leg" data-dfs-detail="${p.id}" style="cursor:pointer">
+    <div class="parlay-leg-num">${p.pos}</div>
+    <div class="parlay-leg-info"><div class="parlay-leg-name">${p.name}${p.lowSample ? ' <span style="font-size:9px;font-weight:700;color:var(--amber)" title="Barely any track record behind this projection — e.g. a new starter whose own history is mostly someone else\'s snaps. Treat with extra caution.">⚠ THIN SAMPLE</span>' : ''} <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.team})</span></div>
+      <div class="parlay-leg-detail">$${p.salary.toLocaleString()}${!p.modeled ? ' · recency estimate' : ''}${lineups.length>1?` · in ${exposureCount[p.id]}/${lineups.length} lineups`:''}</div></div>
+    <div class="parlay-leg-prob">${p.points.toFixed(1)}pts</div></div>`;
+  const lineupCardHTML = (lineup, idx) => {
+    const sorted = [...lineup.players].sort((a, b) => ROSTER_ORDER[a.pos] - ROSTER_ORDER[b.pos]);
+    return `<div class="parlay-card">
+    <div class="parlay-hdr"><div class="parlay-title">${lineups.length>1?`Lineup ${idx+1} of ${lineups.length}`:'Optimal Lineup'}<div style="font-size:11px;color:var(--t3);font-weight:400;margin-top:2px">Week ${week} · ${games.length} game${games.length===1?'':'s'}</div></div>
+      <div class="parlay-combined"><div class="parlay-combined-val">${lineup.points.toFixed(1)}</div><div class="parlay-combined-lbl">Proj. Points</div></div></div>
+    ${sorted.map(legHTML).join('')}
+    <div style="margin-top:10px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--t3)"><span>Salary used</span><span>$${lineup.totalSalary.toLocaleString()} / $50,000</span></div>
+      <div class="dfs-cap-bar"><div class="dfs-cap-fill" style="width:${(lineup.totalSalary / 50000 * 100).toFixed(1)}%"></div></div>
+    </div></div>`;
+  };
+  const shortfallNote = dfsState.lineupCount && lineups.length < dfsState.lineupCount
+    ? ` Only ${lineups.length} distinct, salary-cap-legal lineup${lineups.length===1?'':'s'} could be built from this player pool — showing all of them rather than padding the set with duplicates.`
+    : '';
+  const lineupHTML = lineups.map(lineupCardHTML).join('') +
+    `<div class="parlay-disclaimer">
+      <div class="parlay-disclaimer-line">Games: ${games.map(g => `${g.awayAbbr}@${g.homeAbbr} (model total ${g.model.total})`).join(', ')}.</div>
+      <div class="parlay-disclaimer-line">This maximizes expected points under your locks — it does not account for who else in your contest is rostering the same players, and (unlike the Showdown builder) doesn't yet force any QB/pass-catcher stacking across games.</div>
+      ${shortfallNote ? `<div class="parlay-disclaimer-line">${shortfallNote.trim()}</div>` : ''}
+    </div>`;
+
+  const exposureHTML = lineups.length > 1 ? (() => {
+    const ids = Object.keys(exposureCount).sort((a, b) => exposureCount[b] - exposureCount[a]);
+    const rows = ids.map(id => {
+      const p = playerMeta[id];
+      const used = exposureCount[id];
+      return `<tr>
+        <td class="td-pos">${p.pos}</td><td class="td-name">${p.name}</td><td class="td-team">${p.team}</td>
+        <td class="td-prob num-col" style="color:var(--teal);font-weight:600">${used}/${lineups.length} <span style="color:var(--t3)">(${(used/lineups.length*100).toFixed(0)}%)</span></td></tr>`;
+    }).join('');
+    return `<div style="margin:18px 0 8px;font-size:11px;font-family:var(--mono);color:var(--t3)">EXPOSURE SUMMARY — ${lineups.length} lineups generated</div>
+      <div class="table-scroll"><table class="td-table"><thead><tr><th>Pos</th><th>Player</th><th>Team</th><th class="num-col">Used</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  })() : '';
+
+  const allSorted = [...players].sort((a, b) => b.points - a.points);
+  const tableRows = allSorted.map(p => `<tr class="expand-row" data-dfs-detail="${p.id}">
+    <td class="td-pos">${p.pos}</td><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
+    <td class="td-team">${p.team}</td><td class="td-prob num-col">${p.points.toFixed(2)}</td>
+    <td class="td-touch num-col">$${p.salary.toLocaleString()}</td>
+    <td class="td-touch num-col">${(p.points / (p.salary / 1000)).toFixed(2)}</td>
+    <td>${p.modeled ? '<span style="color:var(--teal);font-size:9px;font-family:var(--mono)">MODEL</span>' : '<span style="color:var(--t3);font-size:9px;font-family:var(--mono)">EST</span>'}${p.lowSample ? ' <span style="color:var(--amber);font-size:9px;font-family:var(--mono)" title="Barely any track record behind this projection">⚠ THIN</span>' : ''}</td></tr>`).join('');
+
+  document.getElementById('dfsResults').innerHTML = lineupHTML + exposureHTML +
+    `<div style="margin:18px 0 8px;font-size:11px;font-family:var(--mono);color:var(--t3)">ALL PLAYER PROJECTIONS (sorted by projected points)</div>
+    <div class="table-scroll"><table class="td-table"><thead><tr><th>Pos</th><th>Player</th><th>Team</th><th class="num-col">Proj Pts</th><th class="num-col">Salary</th><th class="num-col">Pts/$1k</th><th>Source</th></tr></thead>
+    <tbody>${tableRows}</tbody></table></div>`;
+
+  const byId = {}; players.forEach(p => byId[p.id] = p);
+  document.querySelectorAll('[data-dfs-detail]').forEach(el => el.addEventListener('click', () => {
+    const p = byId[el.dataset.dfsDetail]; if (!p) return;
+    const header = `<div class="dd-name">${p.name}</div><div class="dd-sub">${p.pos} · ${p.team} · $${p.salary.toLocaleString()}</div>`;
+    const body = `<div class="detail-grid"><div><div class="detail-block-hdr">Projection</div>
+      <div class="detail-sig-row"><span>Proj. Points</span><span style="color:var(--teal);font-family:var(--mono)">${p.points.toFixed(2)}</span></div>
       <div class="detail-sig-row"><span>DK Avg Pts/Game (provided)</span><span style="font-family:var(--mono)">${p.avgPointsPerGame}</span></div>
       <div class="detail-sig-row"><span>Source</span><span style="font-family:var(--mono);color:${p.modeled ? 'var(--teal)' : 'var(--t3)'}">${p.modeled ? 'nflprob model' : 'recency estimate'}</span></div>
       ${p.note ? `<div class="detail-sig-desc" style="margin-top:6px">${p.note}</div>` : ''}</div></div>`;
