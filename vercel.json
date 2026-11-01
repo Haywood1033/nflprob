@@ -9,6 +9,7 @@
     "api/season.js":     { "maxDuration": 60 },
     "api/history.js":    { "maxDuration": 30 },
     "api/lineup-optimizer.js": { "maxDuration": 60 },
+    "api/classic-optimizer.js": { "maxDuration": 60 },
     "api/cron-grade.js": { "maxDuration": 60 }
   },
   "crons": [

@@ -92,6 +92,30 @@ is a label with no logic behind it, and the two gaps are called out as exactly t
   punting, return suppression) need the same play-by-play file as above — real, free, just not
   pulled into this pass.
 
+## DFS Lineup Builder — Showdown + Classic
+- `lib/dfs-optimizer.js` (Showdown: Captain + 5 FLEX) and `lib/classic-optimizer.js` (Classic:
+  QB/RB/RB/WR/WR/WR/TE/FLEX/DST) are both EXACT optimizers (0/1 knapsack DP, not a greedy
+  heuristic) — the true salary-cap-optimal lineup for the given projections, not an
+  approximation. Classic's roster shape reduces to exactly 3 valid FLEX distributions once the
+  position mins are fixed (RB2-3/WR3-4/TE1-2, always summing to 7); rather than one
+  6-dimensional knapsack (which would need a prohibitively large table to reconstruct safely —
+  see `lib/classic-optimizer.js`'s module comment), it solves each position bucket independently
+  for every possible salary split, then combines them pairwise per scenario. **Verified**:
+  brute-force cross-checked against a small synthetic pool (exact point/salary match), and
+  tested end-to-end against real live nflverse data across two real concurrent games.
+- `lib/dfs-projections.js` now has two entry points sharing the same per-position
+  pass/rush/rec/TD models and staleness checks (benched QB, stale committee role — see the
+  "Market & risk signals" section above): `buildDfsProjections()` for Showdown's one game, and
+  `buildClassicProjections()` for a full multi-game slate, where each uploaded row is matched to
+  its OWN game (parsed per-row from the salary file's Game Info column, not just once from the
+  header row the way Showdown does).
+- `app.html`'s upload flow auto-detects Showdown vs. Classic from DK's own "Roster Position"
+  column (Showdown always has a "CPT" row; Classic never does) — no separate upload mode to pick.
+- **Not built yet for Classic**: QB/pass-catcher stacking correlation across games. Showdown's
+  `buildCore()` only has to reason about one game; a Classic slate's stacks can span multiple
+  games at once, which is a meaningfully bigger correlation model that isn't attempted here —
+  the Classic multi-lineup generator diversifies by exposure cap only, with no forced stacks.
+
 ## What's NOT built yet
 - Yardage prop distributions (rushing/receiving/passing) have scoring modules (`lib/rush-scoring.js`,
   `lib/rec-scoring.js`, `lib/pass-scoring.js`) and endpoints — check their own in-file notes for
