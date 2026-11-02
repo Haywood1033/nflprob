@@ -33,7 +33,15 @@ module.exports = async function handler(req, res) {
 
   const start = Date.now();
   const schedule = await fetchWeekSchedule(year, week);
-  if (!schedule?.length) return res.status(200).json({ week, games: [], error: 'No schedule found' });
+  if (!schedule?.length) {
+    // ESPN's schedule fetch failed or returned nothing for this exact week — if we already
+    // served this week successfully at some point (even past the normal 30-min TTL above), that
+    // stale response is almost always more useful than a blank "no games" page, especially
+    // mid-slate when the user already saw real data minutes ago. A transient ESPN hiccup
+    // shouldn't wipe out an otherwise-working session.
+    if (cache.week === week && cache.data) return res.status(200).json({ ...cache.data, cached: true, stale: true });
+    return res.status(200).json({ week, games: [], error: 'No schedule found' });
+  }
 
   const teamRows = await fetchTeamWeekStats(year);
   const homeTeams = schedule.map(g => g.homeTeam);

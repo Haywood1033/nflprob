@@ -410,11 +410,15 @@ function badgeHTML(badge, cls) {
   return `<span class="${cls}" style="display:inline-flex;align-items:center;gap:4px;color:${badge.color};border-color:${badge.color}66">${badgeIcon(badge.label)}${badgeText(badge.label)}</span>`;
 }
 
-function setStatus(cached) {
+// `stale` means the server itself fell back to an old cached response because a live source
+// (ESPN's schedule, almost always) failed outright just now — a materially different situation
+// from the normal 30-min server cache ("Cached"), which the status dot doesn't otherwise
+// distinguish. Surfaced so a source outage doesn't masquerade as a healthy "Cached" state.
+function setStatus(cached, stale) {
   const dot = document.querySelector('.status .dot');
   const text = document.getElementById('statusText');
-  text.textContent = cached ? 'Cached' : 'Live';
-  if (dot) dot.classList.toggle('live', !cached);
+  text.textContent = stale ? 'Stale — live source unreachable' : cached ? 'Cached' : 'Live';
+  if (dot) dot.classList.toggle('live', !cached && !stale);
 }
 function loadingHTML(label) { return `<div class="loading-state"><div class="spinner"></div><div>${label}</div></div>`; }
 function errorHTML(e) { return `<div class="error-state"><h3>Something went wrong loading this data</h3><div>The app will keep working on other tabs — try switching tabs and back, or reload.</div><details><summary>Technical detail</summary><pre>${(e && e.message) || e}</pre></details></div>`; }
@@ -705,7 +709,7 @@ async function loadThisWeek() {
   } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
 function renderThisWeek(teamData, propsData, allProps) {
-  setStatus(teamData.cached||propsData.cached);
+  setStatus(teamData.cached||propsData.cached, teamData.stale||propsData.stale);
   const games = sortGamesChrono(teamData.games || []); const players = propsData.players || [];
   if (!games.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No games found</h3></div>'; return; }
   const stripHTML = '<div class="game-strip">' + games.map(g => {
@@ -924,7 +928,7 @@ const ML_LEAN_BADGE = {
   tossup: `<span class="badge-tossup">Toss-up</span>`,
 };
 function renderTeamModel(d, props) {
-  setStatus(d.cached);
+  setStatus(d.cached, d.stale);
   const games = sortGamesChrono(d.games || []);
   if (!games.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No games found</h3></div>'; return; }
   maybeSnapshotWeek(d, props);
@@ -1028,7 +1032,7 @@ function playerDrawerHeader(p) {
 }
 function tdDrawerBody(p) { return playerPanel(p, 'td'); }
 function renderTdProps(d) {
-  setStatus(d.cached);
+  setStatus(d.cached, d.stale);
   const allPlayers = d.players || [];
   if (!allPlayers.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3></div>'; return; }
   const {matchup,position,signal} = filterState.td; const players = filterPlayers(allPlayers, matchup, position, signal);
@@ -1056,7 +1060,7 @@ async function loadRushProps() {
 }
 function rushDrawerBody(p) { return playerPanel(p, 'rush'); }
 function renderRushProps(d) {
-  setStatus(d.cached);
+  setStatus(d.cached, d.stale);
   const allPlayers = d.players || [];
   if (!allPlayers.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3></div>'; return; }
   const {matchup,signal} = filterState.rush; const players = filterPlayers(allPlayers, matchup, null, signal);
@@ -1084,7 +1088,7 @@ async function loadRecProps() {
 }
 function recDrawerBody(p) { return playerPanel(p, 'rec'); }
 function renderRecProps(d) {
-  setStatus(d.cached);
+  setStatus(d.cached, d.stale);
   const allPlayers = d.players || [];
   if (!allPlayers.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3></div>'; return; }
   const {matchup,signal} = filterState.rec; const players = filterPlayers(allPlayers, matchup, null, signal);
@@ -1112,7 +1116,7 @@ async function loadPassProps() {
 }
 function passDrawerBody(p) { return playerPanel(p, 'pass'); }
 function renderPassProps(d) {
-  setStatus(d.cached);
+  setStatus(d.cached, d.stale);
   const allPlayers = d.players || [];
   if (!allPlayers.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3></div>'; return; }
   const {matchup,signal} = filterState.pass; const players = filterPlayers(allPlayers, matchup, null, signal);

@@ -87,7 +87,12 @@ module.exports = async function handler(req, res) {
 
   const start = Date.now();
   const schedule = await fetchWeekSchedule(year, week);
-  if (!schedule?.length) return res.status(200).json({ week, players: [], error: 'No schedule found' });
+  if (!schedule?.length) {
+    // See api/team-model.js's identical fallback for the reasoning — a transient ESPN hiccup
+    // shouldn't wipe out a session that already saw real data for this week.
+    if (cache.week === week && cache.data) return res.status(200).json({ ...cache.data, cached: true, stale: true });
+    return res.status(200).json({ week, players: [], error: 'No schedule found' });
+  }
 
   const [teamRows, playerRows, pbpRows, marketGames] = await Promise.all([
     fetchTeamWeekStats(year),
