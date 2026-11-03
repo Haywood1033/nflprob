@@ -281,6 +281,16 @@ body{font-variant-numeric:tabular-nums;background:var(--bg)}
 .tab.active{color:var(--t1);background:none;border:0}
 .tab.active::after{content:'';position:absolute;left:14px;right:14px;bottom:-1px;height:2px;border-radius:2px;background:var(--teal)}
 .wrap{max-width:1240px;margin:0 auto;padding:24px 24px 64px}
+/* The 1240px cap above is deliberate for desktop (see the design-language comment), but on a
+   wide landscape phone/tablet — a viewport wider than a normal portrait phone but nowhere near
+   a desktop monitor — it leaves a lot of dead space on both sides rather than using the screen.
+   Widened only for that band (landscape orientation, and capped at 1800px so an actual desktop
+   monitor, which is always "landscape," keeps the original narrower centered page). Portrait is
+   completely untouched by this — it's never wide enough to hit the 1240px cap in the first place. */
+@media (orientation:landscape) and (min-width:900px) and (max-width:1800px) {
+  .wrap{max-width:1600px}
+  .hdr,.tabs{padding-left:max(16px,calc((100% - 1600px) / 2 + 16px));padding-right:max(16px,calc((100% - 1600px) / 2 + 16px))}
+}
 /* Cards and sections */
 .today-kpi,.today-section,.gs-card,.slate-card,.best-row,.parlay-card,.parlay-game-row,.best-play-card{border-radius:var(--r);border-color:var(--bd)}
 .today-kpi-val{font-size:20px;letter-spacing:-.01em}
