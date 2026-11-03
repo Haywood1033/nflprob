@@ -1697,7 +1697,7 @@ async function dfsFetchProjections() {
       const byId = {}; data.players.forEach(p => { byId[p.id] = p; });
       dfsState.players = dfsState.players.map(p => {
         const proj = byId[p.id];
-        return proj ? { ...p, projPoints: proj.points, projModeled: proj.modeled, projLowSample: proj.lowSample } : p;
+        return proj ? { ...p, projPoints: proj.points, projModeled: proj.modeled, projLowSample: proj.lowSample, projUnmodeledTeammates: proj.unmodeledTeammates } : p;
       });
     }
   } catch (e) { /* non-fatal — see comment above */ }
@@ -1722,9 +1722,10 @@ function renderDfsPlayerTable() {
       : p.projPoints != null
         ? `<span style="color:var(--teal);font-weight:600">${p.projPoints.toFixed(1)}</span> <span style="font-size:9px;font-family:var(--mono);color:${p.projModeled?'var(--teal)':'var(--t3)'}">${p.projModeled?'MODEL':'EST'}</span>${p.projLowSample?` <span style="font-size:9px;font-family:var(--mono);color:var(--amber)" title="Barely any track record behind this number — e.g. a new starter whose own history is mostly someone else's snaps. Treat with extra caution.">⚠ THIN SAMPLE</span>`:''}`
         : `<span style="color:var(--t3)">—</span>`;
+    const teammateFlag = p.projUnmodeledTeammates?.length ? ` <span style="color:var(--amber)" title="${p.projUnmodeledTeammates.join(', ')} is active with no recorded usage this season — this projection doesn't account for them taking touches">⚠</span>` : '';
     return `<tr class="${excluded ? 'dfs-row-excluded' : ''}">
       <td class="td-pos">${p.position}</td>
-      <td class="td-name">${p.name}</td>
+      <td class="td-name">${p.name}${teammateFlag}</td>
       <td class="td-team">${p.teamAbbrev}</td>
       <td class="td-prob num-col">$${p.salary.toLocaleString()}</td>
       <td class="td-touch num-col">${p.avgPointsPerGame}</td>
@@ -1833,7 +1834,7 @@ function renderDfsResults(data) {
     const coreEntry = lineup.core && lineup.core.players.find(c => c.id === p.id && c.inLineup);
     return `<div class="parlay-leg" data-dfs-detail="${p.id}" style="cursor:pointer">
     <div class="parlay-leg-num">${isCaptain ? icon('star', 'color:var(--amber)') : p.pos}</div>
-    <div class="parlay-leg-info"><div class="parlay-leg-name">${p.name}${isCaptain ? ' <span style="color:var(--amber);font-weight:700;font-size:10px">CPT</span>' : ''}${!isCaptain && coreEntry ? '<span class="dfs-core-tag">CORE</span>' : ''}${p.lowSample ? ' <span style="font-size:9px;font-weight:700;color:var(--amber)" title="Barely any track record behind this projection — e.g. a new starter whose own history is mostly someone else\'s snaps. Treat with extra caution.">⚠ THIN SAMPLE</span>' : ''} <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.team})</span></div>
+    <div class="parlay-leg-info"><div class="parlay-leg-name">${p.name}${isCaptain ? ' <span style="color:var(--amber);font-weight:700;font-size:10px">CPT</span>' : ''}${!isCaptain && coreEntry ? '<span class="dfs-core-tag">CORE</span>' : ''}${p.lowSample ? ' <span style="font-size:9px;font-weight:700;color:var(--amber)" title="Barely any track record behind this projection — e.g. a new starter whose own history is mostly someone else\'s snaps. Treat with extra caution.">⚠ THIN SAMPLE</span>' : ''}${p.unmodeledTeammates?.length ? ` <span style="font-size:9px;font-weight:700;color:var(--amber)" title="${p.unmodeledTeammates.join(', ')} is active with no recorded usage this season — this projection doesn't account for them taking touches">⚠ TEAMMATE RETURNING</span>` : ''} <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.team})</span></div>
       <div class="parlay-leg-detail">$${(isCaptain ? lineup.captainSalary : p.salary).toLocaleString()}${!p.modeled ? ' · recency estimate' : ''}${lineups.length>1?` · in ${exposureCount[p.id]}/${lineups.length} lineups`:''}</div></div>
     <div class="parlay-leg-prob">${(isCaptain ? p.points * 1.5 : p.points).toFixed(1)}pts</div></div>`;
   };
@@ -1955,7 +1956,7 @@ function renderClassicResults(data) {
   const ROSTER_ORDER = { QB: 0, RB: 1, WR: 2, TE: 3, DST: 4 };
   const legHTML = (p) => `<div class="parlay-leg" data-dfs-detail="${p.id}" style="cursor:pointer">
     <div class="parlay-leg-num">${p.pos}</div>
-    <div class="parlay-leg-info"><div class="parlay-leg-name">${p.name}${p.lowSample ? ' <span style="font-size:9px;font-weight:700;color:var(--amber)" title="Barely any track record behind this projection — e.g. a new starter whose own history is mostly someone else\'s snaps. Treat with extra caution.">⚠ THIN SAMPLE</span>' : ''} <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.team})</span></div>
+    <div class="parlay-leg-info"><div class="parlay-leg-name">${p.name}${p.lowSample ? ' <span style="font-size:9px;font-weight:700;color:var(--amber)" title="Barely any track record behind this projection — e.g. a new starter whose own history is mostly someone else\'s snaps. Treat with extra caution.">⚠ THIN SAMPLE</span>' : ''}${p.unmodeledTeammates?.length ? ` <span style="font-size:9px;font-weight:700;color:var(--amber)" title="${p.unmodeledTeammates.join(', ')} is active with no recorded usage this season — this projection doesn't account for them taking touches">⚠ TEAMMATE RETURNING</span>` : ''} <span style="color:var(--t3);font-weight:400;font-size:11px">(${p.team})</span></div>
       <div class="parlay-leg-detail">$${p.salary.toLocaleString()}${!p.modeled ? ' · recency estimate' : ''}${lineups.length>1?` · in ${exposureCount[p.id]}/${lineups.length} lineups`:''}</div></div>
     <div class="parlay-leg-prob">${p.points.toFixed(1)}pts</div></div>`;
   const lineupCardHTML = (lineup, idx) => {
