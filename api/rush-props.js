@@ -5,7 +5,7 @@ const { buildGameModel } = require('../lib/team-scoring.js');
 const { computeRushUsage, computeRushDefenseAllowed, projectRushYards, getRushSignals } = require('../lib/rush-scoring.js');
 const { recencyWindow, recentGames } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
-const { poolFromRoster } = require('../lib/roster-pool.js');
+const { poolFromRoster, unmodeledRosterTeammates } = require('../lib/roster-pool.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
 
@@ -85,6 +85,10 @@ module.exports = async function handler(req, res) {
 
       const pool = poolFromRoster(roster, playerRows, ['RB'], 'carries', 4, throughWeek)
         || topRushersForTeamFallback(playerRows, t.abbr, throughWeek);
+      // A roster-active RB with zero usage history this season (an IR activation, a trade
+      // addition) who never made it into the pool above at all — see the function's own
+      // comment in lib/roster-pool.js for why this is flagged rather than silently ignored.
+      const unmodeled = unmodeledRosterTeammates(roster, playerRows, ['RB']);
 
       for (const candidate of pool) {
         const usage = computeRushUsage(playerRows, candidate.name, candidate.histTeam, throughWeek, recencyWindow(throughWeek));
@@ -110,6 +114,7 @@ module.exports = async function handler(req, res) {
           ci: sig.ci,
           injured: !isHealthy(roster, candidate.name),
           injuryStatus: rosterEntry?.injuryStatus || null,
+          unmodeledTeammates: unmodeled.filter(u => u.name !== candidate.name).map(u => u.name),
           detail: playerDetail(playerRows, { name: candidate.name, team: candidate.histTeam, position: 'RB', oppAbbr: toNflverseAbbr(t.oppAbbr), market: 'rush', throughWeek }),
         });
       }

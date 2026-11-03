@@ -5,7 +5,7 @@ const { buildGameModel } = require('../lib/team-scoring.js');
 const { computePlayerUsage, computeDefenseAllowedToPosition, anytimeTdProb, getTdSignals } = require('../lib/td-scoring.js');
 const { recencyWindow, recentGames } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
-const { poolFromRoster } = require('../lib/roster-pool.js');
+const { poolFromRoster, unmodeledRosterTeammates } = require('../lib/roster-pool.js');
 const { fetchPbp, computeRedZoneStats, playerRedZoneShare, teamRedZoneTdRate } = require('../lib/red-zone.js');
 const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
 const { normalizeQbName } = require('../lib/qb-status.js');
@@ -154,6 +154,11 @@ module.exports = async function handler(req, res) {
           pool.push({ name: confirmedQbName, position: 'QB', histTeam: nflverseTeam, volume: 0, lastWeekPlayed: -1 });
         }
       }
+      // Non-QB roster-active players with zero usage history anywhere this season (an IR
+      // activation, a trade addition) who never made it into the pool above at all — see the
+      // function's own comment in lib/roster-pool.js for why this is flagged rather than
+      // silently ignored. QB is excluded here since it's already handled precisely above.
+      const unmodeled = unmodeledRosterTeammates(roster, playerRows, TD_POSITIONS.filter(p => p !== 'QB'));
 
       for (const candidate of pool) {
         const usage = computePlayerUsage(playerRows, candidate.name, throughWeek, recencyWindow(throughWeek));
@@ -179,6 +184,7 @@ module.exports = async function handler(req, res) {
           signalCount: sig.count,
           badge: sig.badge,
           ci: sig.ci,
+          unmodeledTeammates: unmodeled.filter(u => u.position === usage.position && u.name !== candidate.name).map(u => u.name),
           injured: !isHealthy(roster, candidate.name),
           injuryStatus: rosterEntry?.injuryStatus || null,
           detail: playerDetail(playerRows, { name: candidate.name, position: usage.position, oppAbbr: toNflverseAbbr(t.oppAbbr), market: 'td', throughWeek }),

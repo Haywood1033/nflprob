@@ -650,6 +650,7 @@ function playerPanel(p, market) {
   const sigs = (p.signals || []).map(s => `<div class="pp-signal"><span class="pp-tag ${s.active ? 'on' : ''}">${s.active ? '✓' : '·'} ${ppEsc(s.label)}</span><p>${ppEsc(ppSignalReason(s, d, p, market))}</p></div>`).join('');
   return `
     ${p.injured ? `<div class="pp-warn">⚠ ${ppEsc(p.injuryStatus || 'Injury designation')}: check status before betting</div>` : ''}
+    ${p.unmodeledTeammates?.length ? `<div class="pp-warn">⚠ ${ppEsc(p.unmodeledTeammates.join(', '))} ${p.unmodeledTeammates.length > 1 ? 'are' : 'is'} active on the roster with no recorded usage this season (IR return or new addition the stats haven't caught up to) — this projection doesn't account for them taking touches</div>` : ''}
     <div class="pp-section"><div class="pp-t">This week</div>
       <div class="pp-kv">${tiles.map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>
       <div class="pp-note">${p.badge ? `${ppEsc(p.badge.label)} · ` : ''}Confidence ${ppEsc(p.ci?.label || '—')}${d?.oppRank ? ` · ${ppEsc(d.oppRank.team)} allow ${d.oppRank.perGame.toFixed(1)} per game in ${ppEsc(d.oppRank.label)}` : ''}</div></div>
@@ -1052,7 +1053,8 @@ function renderTdProps(d) {
   const rows = players.map(p => {
     const badgeHtml = badgeHTML(p.badge, 'badge-shootout');
     const key = rowKey(p); byKey[key] = p;
-    return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
+    const unmodeledFlag = p.unmodeledTeammates?.length ? ` <span style="color:var(--amber)" title="${p.unmodeledTeammates.join(', ')} is active on the roster with no recorded usage this season — this projection doesn't account for them">⚠</span>` : '';
+    return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}${unmodeledFlag}</td>
       <td class="td-pos">${p.position}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.prob}%</td>
       <td class="td-touch">${p.touches}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
   }).join('');
@@ -1080,7 +1082,8 @@ function renderRushProps(d) {
   const rows = players.map(p => {
     const badgeHtml = badgeHTML(p.badge, 'badge-shootout');
     const key = rowKey(p); byKey[key] = p;
-    return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
+    const unmodeledFlag = p.unmodeledTeammates?.length ? ` <span style="color:var(--amber)" title="${p.unmodeledTeammates.join(', ')} is active on the roster with no recorded usage this season — this projection doesn't account for them">⚠</span>` : '';
+    return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}${unmodeledFlag}</td>
       <td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td><td class="td-touch">${p.floor}–${p.ceiling}</td>
       <td class="td-touch">${p.carries}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
   }).join('');
