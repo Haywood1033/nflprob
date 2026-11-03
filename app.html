@@ -2215,6 +2215,27 @@ async function initApp() {
   loadThisWeek();
 }
 initApp();
+
+// WORKAROUND for a real, observed Mobile Safari bug: rotating to landscape, the browser
+// sometimes computes %/calc()-based widths (the --gutter/.wrap max-width rules above) against
+// the viewport size from BEFORE the rotation, and doesn't recalculate until something else
+// forces a reflow. Confirmed on a real device: switching to a different nflprob tab (a DOM
+// mutation, unrelated to layout) "fixed" the spacing with no CSS change at all — proof the
+// stale calculation, not the actual CSS, was the bug. This forces that same reflow immediately
+// on rotation/resize instead of leaving the user to stumble into a fix by switching tabs.
+let _reflowRaf = null;
+function _forceLayoutReflow() {
+  if (_reflowRaf != null) cancelAnimationFrame(_reflowRaf);
+  _reflowRaf = requestAnimationFrame(() => {
+    _reflowRaf = null;
+    const prev = document.body.style.display;
+    document.body.style.display = 'none';
+    void document.body.offsetHeight; // synchronous layout flush
+    document.body.style.display = prev;
+  });
+}
+window.addEventListener('orientationchange', _forceLayoutReflow);
+window.addEventListener('resize', _forceLayoutReflow);
 </script>
 </body>
 </html>
