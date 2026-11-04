@@ -2037,9 +2037,13 @@ async function loadAccuracy() {
   document.getElementById('content').innerHTML = loadingHTML('Loading accuracy history…');
   try {
     const data = await fetch('/api/history').then(r => r.json());
-    if (data.error) { document.getElementById('content').innerHTML = errorHTML(data.error); return; }
+    if (data.error) throw new Error(data.error);
     renderAccuracy(data);
-  } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
+  } catch (e) {
+    // The backtest doesn't need the saved history, so it stays usable when the live record can't load.
+    document.getElementById('content').innerHTML = backtestHTML() + `<div style="margin:18px 0 8px;font-size:14px;font-weight:700;color:var(--t1)">Live record</div>` + errorHTML(e);
+    attachBacktestHandlers();
+  }
 }
 
 function renderAccuracyWeekList(records) {
@@ -2057,6 +2061,64 @@ function renderAccuracyWeekList(records) {
     <tbody>${rows}</tbody></table></div>`;
 }
 
+// ── Backtest + calibration (lib/backtest.js, lib/calibration.js) ─────────────────────────
+// Re-predicts every completed week from earlier weeks only, scores it against real results and
+// the Vegas lines, and (with a database) saves the calibrations that helped on held-out games.
+let btState = { data: null, loading: false, err: null, scope: 'both' };
+const bp = v => (v == null || isNaN(v) ? '—' : (v * 100).toFixed(1) + '%');
+const bn = (v, d = 1) => (v == null || isNaN(v) ? '—' : (+v).toFixed(d));
+const better = (m, b, lower = true) => (m == null || b == null ? '' : (lower ? m < b : m > b) ? '<span style="color:var(--green)">better</span>' : '<span style="color:var(--red)">worse</span>');
+async function runBacktestNow() {
+  btState = { ...btState, loading: true, err: null }; rerenderBacktest();
+  try {
+    const res = await fetch('/api/backtest' + (btState.scope === 'current' ? '?scope=current' : ''));
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || res.status);
+    btState = { ...btState, data, loading: false };
+  } catch (e) { btState = { ...btState, loading: false, err: e.message || String(e) }; }
+  rerenderBacktest();
+}
+function rerenderBacktest() { const el = document.getElementById('btSection'); if (el) { el.innerHTML = backtestInner(); attachBacktestHandlers(); } }
+function backtestHTML() { return `<div id="btSection">${backtestInner()}</div>`; }
+function backtestInner() {
+  const B = btState.data;
+  const head = `<div class="filter-bar" style="margin-bottom:10px"><div style="font-size:14px;font-weight:700;color:var(--t1)">Backtest</div>
+    <div style="font-size:12px;color:var(--t3)">Every completed week re-predicted from earlier weeks only, then scored against real results and the Vegas lines.</div>
+    <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
+      <span class="dfs-link-btn" data-bt-scope="both" style="${btState.scope === 'both' ? 'color:var(--t1);text-decoration:none;font-weight:700' : ''}">last two seasons</span>
+      <span class="dfs-link-btn" data-bt-scope="current" style="${btState.scope === 'current' ? 'color:var(--t1);text-decoration:none;font-weight:700' : ''}">this season</span>
+      <span class="dfs-link-btn" id="btRun" style="color:var(--teal)">${btState.loading ? 'running… (about 15–30 seconds)' : B ? 're-run' : 'run backtest'}</span></div></div>`;
+  if (btState.err) return head + errorHTML(btState.err);
+  if (!B) return head + `<div class="empty" style="padding:14px 4px;text-align:left;font-size:12px">Not run yet. It replays every completed regular-season week from week 2 on.</div>`;
+  const M = B.moneyline, cal = M.calibration;
+  const kpis = `<div class="today-kpis">
+    ${accuracyKpi('Moneyline log loss', bn(M.logLoss.model, 3), 'var(--t1)', `Vegas ${bn(M.logLoss.vegas, 3)} · home team ${bn(M.logLoss.home, 3)} · ${better(M.logLoss.model, M.logLoss.home)} than home`)}
+    ${accuracyKpi('Spread avg miss', bn(B.spread.mae.model), 'var(--t1)', `Vegas ${bn(B.spread.mae.vegas)} pts · off the line by 3+: right ${bp(B.spread.disagree3.hitRate)} (${B.spread.disagree3.n})`)}
+    ${accuracyKpi('Total avg miss', bn(B.totals.mae.model), 'var(--t1)', `Vegas ${bn(B.totals.mae.vegas)} · bias ${bn(B.totals.bias)} · off by 3+: right ${bp(B.totals.disagree3.hitRate)}`)}
+    ${accuracyKpi('Anytime TD log loss', bn(B.anytimeTd.logLoss.model, 3), 'var(--t1)', `TD rate so far ${bn(B.anytimeTd.logLoss.naive, 3)} · ${better(B.anytimeTd.logLoss.modelSameRows, B.anytimeTd.logLoss.naive)} · ${B.anytimeTd.n.toLocaleString()} player-games`)}
+    ${['rushYds', 'recYds', 'passYds'].map(k => { const Y = B[k], lbl = { rushYds: 'Rush yds', recYds: 'Rec yds', passYds: 'Pass yds' }[k]; return accuracyKpi(`${lbl} avg miss`, bn(Y.mae.model), 'var(--t1)', `season avg ${bn(Y.mae.naive)} · ${better(Y.mae.modelSameRows, Y.mae.naive)} · band held ${bp(Y.inBand)}`); }).join('')}
+    ${accuracyKpi('Games scored', B.games, 'var(--t1)', `${B.weeks} weeks · seasons ${B.seasons.join(', ')}`)}
+  </div>`;
+  const calRow = (name, wants, applied, chk, helped, fmt) => `<tr><td class="td-name">${name}</td><td>${wants}</td><td>${applied}</td><td>${chk ? `${fmt(chk.raw)} → ${fmt(chk.calibrated)}` : '—'}</td><td>${helped == null ? '—' : helped ? '<span style="color:var(--green)">helped · applied</span>' : '<span style="color:var(--amber)">didn’t help · not applied</span>'}</td></tr>`;
+  const mlHelped = cal.check ? cal.check.calibrated < cal.check.raw : null;
+  const calTable = `<div class="today-section"><div class="today-section-hdr"><span>Calibration · fitted from these games, checked on the newer half</span><span style="font-weight:400;color:var(--t3)">${B.calibrationSaved ? 'saved · now live' : B.calibrationNote || B.calibrationError || ''}</span></div>
+    <div class="table-scroll"><table class="td-table"><thead><tr><th>Market</th><th>What the data wants</th><th>Applied</th><th>Held-out check</th><th>Result</th></tr></thead><tbody>
+    ${calRow('Moneyline (stretch on win chances)', cal.kFit == null ? '—' : '×' + cal.kFit.toFixed(2), cal.kFit == null ? '—' : '×' + (mlHelped ? cal.kApplied : 1).toFixed(2), cal.check, mlHelped, v => bn(v, 3) + ' log loss')}
+    ${(() => { const t = B.anytimeTd.calibration; return calRow('Anytime TD (shift a, spread k)', t.fit ? `a ${t.fit.a}, k ${t.fit.k}` : '—', t.fit ? `a ${t.applied.a}, k ${t.applied.k}` : '—', t.check, t.fit ? t.helped : null, v => bn(v, 3) + ' log loss'); })()}
+    ${['rush', 'rec', 'pass'].map(k => { const c = B[k + 'Yds'].calibration, lbl = { rush: 'Rush yards', rec: 'Rec yards', pass: 'Pass yards' }[k]; return calRow(`${lbl} (model share, band ×)`, c.fit ? `${Math.round(c.fit.w * 100)}% model · band ×${c.fit.f}` : '—', c.fit ? `${Math.round(c.applied.w * 100)}% · ×${c.applied.f}` : '—', c.check, c.fit ? c.helped : null, v => bn(v) + ' yds'); }).join('')}
+    ${(() => { const c = B.totals.calibration; return calRow('Game totals (shift)', c.fit ? `${c.fit.shift > 0 ? '+' : ''}${c.fit.shift} pts` : '—', c.fit ? `${c.applied.shift > 0 ? '+' : ''}${c.applied.shift} pts` : '—', c.check, c.fit ? c.helped : null, v => bn(v, 2) + ' pts'); })()}
+    </tbody></table></div><div class="empty" style="padding:8px 16px;text-align:left;font-size:11px">Each one is fitted on the older half of the games and scored on the newer half it hadn’t seen; only those that helped are applied live (shrunk for sample size). Yardage blends the model with the player’s season average and sizes the floor–ceiling band to hold about 68% of games. Prop signals and badges still use the raw projections their thresholds were set on.</div></div>`;
+  const lean = `<div class="today-section"><div class="today-section-hdr"><span>Moneyline lean · favorite won vs model said</span></div><div class="today-section-body">${M.byTier.map(t => `<div class="game-lean-row"><div class="game-lean-teams">${{ strong: 'Strong Lean (65%+)', lean: 'Lean (57-65%)', tossup: 'Toss-up (<57%)' }[t.tier]}</div><div class="game-lean-meta"><span>${t.n} games</span><span>model ${bp(t.predicted)}</span><span style="color:var(--teal)">won ${bp(t.won)}</span></div></div>`).join('')}</div></div>`;
+  const badges = `<div class="today-section"><div class="today-section-hdr"><span>Anytime TD · scored vs model said, by badge</span></div><div class="today-section-body">${B.anytimeTd.byBadge.map(t => `<div class="game-lean-row"><div class="game-lean-teams">${t.badge}</div><div class="game-lean-meta"><span>${t.n.toLocaleString()} player-games</span><span>model ${bp(t.predicted)}</span><span style="color:var(--teal)">scored ${bp(t.actual)}</span></div></div>`).join('')}</div></div>`;
+  const tdCal = `<div class="today-section"><div class="today-section-hdr"><span>Anytime TD calibration · before calibrating</span><span style="font-weight:400;color:var(--t3)">When the model said x%, how often he scored</span></div><div class="table-scroll"><table class="td-table"><thead><tr><th>Model said</th><th>Player-games</th><th>Avg predicted</th><th>Scored</th></tr></thead><tbody>${(B.anytimeTd.bins || []).filter(x => x.n).map(x => `<tr><td class="td-name">${bp(x.lo)}–${bp(x.hi)}</td><td>${x.n.toLocaleString()}</td><td>${bp(x.predicted)}</td><td>${bp(x.actual)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  return head + kpis + calTable + `<div class="today-two-col">${lean}${badges}</div>` + tdCal +
+    `<div class="empty" style="padding:6px 4px 16px;text-align:left;font-size:11px">Vegas is the bar to beat on game markets: the model is compared against the closing spread, total and no-vig moneyline. Lineups in the replay use the endpoints’ own fallback pools (who played most recently), since past rosters aren’t available; weather uses game-day conditions.</div>`;
+}
+function attachBacktestHandlers() {
+  const run = document.getElementById('btRun'); if (run) run.addEventListener('click', () => { if (!btState.loading) runBacktestNow(); });
+  document.querySelectorAll('[data-bt-scope]').forEach(el => el.addEventListener('click', () => { btState.scope = el.dataset.btScope; rerenderBacktest(); }));
+}
+
 function renderAccuracy(data) {
   const agg = data.aggregate;
   const records = data.records || [];
@@ -2064,8 +2126,8 @@ function renderAccuracy(data) {
     <span class="dfs-link-btn" id="accSnapshotBtn" style="margin-left:auto">snapshot current week now</span></div>`;
 
   if (!agg) {
-    document.getElementById('content').innerHTML = headerHTML +
-      `<div class="empty"><h3>No graded weeks yet</h3><div style="margin-top:8px;color:var(--t3);font-size:12px">Once a saved week's games are final, grade it below to start building accuracy history.</div></div>
+    document.getElementById('content').innerHTML = headerHTML + backtestHTML() +
+      `<div style="margin:18px 0 8px;font-size:14px;font-weight:700;color:var(--t1)">Live record</div><div class="empty"><h3>No graded weeks yet</h3><div style="margin-top:8px;color:var(--t3);font-size:12px">Once a saved week's games are final, grade it below to start building accuracy history.</div></div>
       ${renderAccuracyWeekList(records)}`;
     attachAccuracyHandlers();
     return;
@@ -2104,7 +2166,7 @@ function renderAccuracy(data) {
       <div class="game-lean-meta"><span>${b.n} graded</span><span style="color:var(--t1);font-weight:600">MAE ${fmtNum(b.mae)}</span><span>bias ${fmtNum(b.bias)}</span></div></div>`;
   }).join('');
 
-  document.getElementById('content').innerHTML = headerHTML + kpis +
+  document.getElementById('content').innerHTML = headerHTML + backtestHTML() + `<div style="margin:18px 0 8px;font-size:14px;font-weight:700;color:var(--t1)">Live record</div>` + kpis +
     `<div class="today-two-col">
       <div class="today-section"><div class="today-section-hdr"><span>Anytime TD — Hit Rate by Badge Tier</span></div><div class="today-section-body">${badgeRows}</div></div>
       <div class="today-section"><div class="today-section-hdr"><span>Anytime TD — Hit Rate by Confidence Tier</span></div><div class="today-section-body">${confRows}</div></div>
@@ -2119,6 +2181,7 @@ function renderAccuracy(data) {
 }
 
 function attachAccuracyHandlers() {
+  attachBacktestHandlers();
   document.querySelectorAll('[data-grade-week]').forEach(el => el.addEventListener('click', async () => {
     const weekKey = el.dataset.gradeWeek;
     el.textContent = 'grading…';

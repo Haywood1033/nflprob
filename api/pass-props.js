@@ -11,6 +11,7 @@ const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
 const { pickConfirmedStarter } = require('../lib/qb-status.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
+const { loadCalibration, applyYardsCalibration, seasonAverage } = require('../lib/calibration.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -78,6 +79,7 @@ module.exports = async function handler(req, res) {
   const rosterCache = Object.fromEntries(rosterEntries);
 
   const throughWeek = Number(week) - 1;
+  const cal = await loadCalibration(); // backtest-fitted yardage calibration; none = the raw model
   const players = [];
 
   for (const g of schedule) {
@@ -107,9 +109,10 @@ module.exports = async function handler(req, res) {
       const usage = computePassUsage(playerRows, starter.name, starter.histTeam, throughWeek, recencyWindow(throughWeek));
       if (!usage) continue;
       const defAllowed = computePassDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
-      const proj = projectPassYards(usage, defAllowed, t.implied, { weather: gameWeather });
-      if (!proj) continue;
-      const sig = getPassSignals(usage, defAllowed, proj);
+      const rawProj = projectPassYards(usage, defAllowed, t.implied, { weather: gameWeather });
+      if (!rawProj) continue;
+      const sig = getPassSignals(usage, defAllowed, rawProj); // signal thresholds were set on the raw projection
+      const proj = applyYardsCalibration(rawProj, seasonAverage(playerRows, starter.name, starter.histTeam, throughWeek, 'passing_yards'), 'pass', cal);
       const rosterEntry = getRosterEntry(roster, starter.name);
 
       players.push({

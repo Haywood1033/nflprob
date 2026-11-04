@@ -8,6 +8,7 @@ const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js
 const { poolFromRoster, unmodeledRosterTeammates } = require('../lib/roster-pool.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
+const { loadCalibration, applyYardsCalibration, seasonAverage } = require('../lib/calibration.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -64,6 +65,7 @@ module.exports = async function handler(req, res) {
   if (!playerRows?.length) return res.status(200).json({ week, players: [], error: 'Player stats unavailable' });
 
   const throughWeek = Number(week) - 1;
+  const cal = await loadCalibration(); // backtest-fitted yardage calibration; none = the raw model
   const players = [];
 
   const distinctAbbrs = [...new Set(schedule.flatMap(g => [g.homeAbbr, g.awayAbbr]))];
@@ -94,9 +96,10 @@ module.exports = async function handler(req, res) {
         const usage = computeRushUsage(playerRows, candidate.name, candidate.histTeam, throughWeek, recencyWindow(throughWeek));
         if (!usage) continue;
         const defAllowed = computeRushDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
-        const proj = projectRushYards(usage, defAllowed, t.implied);
-        if (!proj) continue;
-        const sig = getRushSignals(usage, defAllowed, proj);
+        const rawProj = projectRushYards(usage, defAllowed, t.implied);
+        if (!rawProj) continue;
+        const sig = getRushSignals(usage, defAllowed, rawProj); // signal thresholds were set on the raw projection
+        const proj = applyYardsCalibration(rawProj, seasonAverage(playerRows, candidate.name, candidate.histTeam, throughWeek, 'rushing_yards'), 'rush', cal);
         const rosterEntry = getRosterEntry(roster, candidate.name);
 
         players.push({

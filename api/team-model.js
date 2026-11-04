@@ -8,6 +8,7 @@ const { fetchWeekSchedule } = require('../lib/schedule.js');
 const { fetchAllWeather } = require('../lib/weather.js');
 const { fetchTeamWeekStats, computeTeamEfficiency, toNflverseAbbr } = require('../lib/nflverse.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
+const { loadCalibration, applyGameCalibration } = require('../lib/calibration.js');
 const { recencyWindow } = require('../lib/recency-window.js');
 const { fetchGames } = require('../lib/nflverse-games.js');
 const { teamTrend } = require('../lib/team-trend.js');
@@ -44,6 +45,8 @@ module.exports = async function handler(req, res) {
   }
 
   const teamRows = await fetchTeamWeekStats(year);
+  // Backtest-fitted calibration (moneyline stretch, totals shift); none = the raw model.
+  const cal = await loadCalibration();
   const homeTeams = schedule.map(g => g.homeTeam);
   // fetchGames() hits nflverse's schedules/games.csv once and is reused for both the Slate
   // trend charts (scheduleRows/teamTrend) and real market context (marketGames/getMarketContext)
@@ -74,11 +77,11 @@ module.exports = async function handler(req, res) {
     const homeQbStatus = playerSeasonRows ? qbStatus(market.homeQbName, playerSeasonRows, toNflverseAbbr(g.homeAbbr)) : 'unknown';
     const awayQbStatus = playerSeasonRows ? qbStatus(market.awayQbName, playerSeasonRows, toNflverseAbbr(g.awayAbbr)) : 'unknown';
 
-    const model = buildGameModel(homeEff, awayEff, {
+    const model = applyGameCalibration(buildGameModel(homeEff, awayEff, {
       weather: gameWeather,
       homeRestDays: market.homeRestDays, awayRestDays: market.awayRestDays,
       homeQbStatus, awayQbStatus,
-    });
+    }), cal);
 
     // Model-vs-market edge: positive homeMarginEdge means the model favors the home team by
     // more than the market line does (and vice versa for away). Only meaningful once a real
@@ -96,7 +99,7 @@ module.exports = async function handler(req, res) {
     };
   });
 
-  const data = { week, year, games, timestamp: Date.now(), elapsed: Date.now() - start };
+  const data = { week, year, games, calibration: cal ? { ml: cal.ml?.k ?? 1, totalsShift: cal.totals?.shift ?? 0, fittedAt: cal.ml?.fittedAt || null } : null, timestamp: Date.now(), elapsed: Date.now() - start };
   cache = { data, timestamp: Date.now(), week };
   // Short CDN cache — see api/props.js for the reasoning (60s balances "tabs feel slow with
   // zero edge caching" against "a deploy looks broken for 30+ minutes," which the old

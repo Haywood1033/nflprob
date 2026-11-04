@@ -11,6 +11,7 @@ const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
 const { normalizeQbName } = require('../lib/qb-status.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
+const { loadCalibration, applyTdCalibration } = require('../lib/calibration.js');
 
 let cache = { data: null, timestamp: null, week: null };
 const CACHE_TTL = 30 * 60 * 1000;
@@ -106,6 +107,7 @@ module.exports = async function handler(req, res) {
   }
 
   const throughWeek = Number(week) - 1;
+  const cal = await loadCalibration(); // backtest-fitted TD calibration; none = the raw model
   // Real red-zone touch share (lib/red-zone.js, from play-by-play) — null when the fetch
   // failed, which every lookup below already treats the same as "no red-zone sample yet."
   const rzStats = pbpRows ? computeRedZoneStats(pbpRows, throughWeek) : null;
@@ -165,7 +167,7 @@ module.exports = async function handler(req, res) {
         if (!usage) continue;
         const defAllowed = computeDefenseAllowedToPosition(playerRows, t.oppAbbr, usage.position, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
         const rzShare = rzStats ? playerRedZoneShare(rzStats, toNflverseAbbr(t.abbr), usage.playerId) : null;
-        const prob = anytimeTdProb(usage, defAllowed, t.implied, { rzShare });
+        const prob = applyTdCalibration(anytimeTdProb(usage, defAllowed, t.implied, { rzShare }), cal);
         if (prob == null) continue;
         const sig = getTdSignals(usage, defAllowed, model, rzShare);
         const rosterEntry = getRosterEntry(roster, candidate.name);
