@@ -46,3 +46,18 @@ test('totals: a biased model is shifted, shrunk for sample size', () => {
   const c = C.calibrateTotals(rows);
   assert.ok(c.helped && c.applied.shift > 1 && c.applied.shift < c.fit.shift);
 });
+
+test('DFS: a model that runs hot at the top end is pulled back by the fitted line', () => {
+  const r = rng(5), rows = [];
+  // true points = 0.75 × model + 1.5 (plus skewed noise): big projections overshoot
+  for (let i = 0; i < 3000; i++) { const proj = 25 * r() ** 1.5, naive = proj * 0.9 + (r() - 0.5) * 4, mean = 1.5 + 0.75 * proj; rows.push({ order: i, proj, naive, actual: Math.max(0, mean + (r() - 0.3) * 10) }); }
+  const c = C.calibrateDfs(rows);
+  assert.ok(c.helped, 'helped on the newer half');
+  assert.ok(c.fit.b + c.fit.c > 0.6 && c.fit.b + c.fit.c < 0.95, `slope ${c.fit.b} + ${c.fit.c}`);
+  assert.ok(c.check.calibrated.top.projected < c.check.raw.top.projected);
+  const cal = { dfs_wr: { line: { a: 1, b: 0.8, c: 0.1 } } };
+  assert.equal(C.applyDfsCalibration(20, 10, 'WR', cal), 18);
+  assert.equal(C.applyDfsCalibration(20, null, 'WR', cal), 19, 'no season average yet = model stands in for it');
+  assert.equal(C.applyDfsCalibration(20, 10, 'RB', cal), 20, 'no line for this position = unchanged');
+  assert.equal(C.applyDfsCalibration(20, 10, 'WR', null), 20);
+});
