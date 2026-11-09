@@ -15,6 +15,7 @@ const { teamTrend } = require('../lib/team-trend.js');
 const { getMarketContext } = require('../lib/vegas-lines.js');
 const { fetchPlayerWeekStats } = require('../lib/player-stats.js');
 const { qbStatus } = require('../lib/qb-status.js');
+const { resolveStarter } = require('../lib/qb-starter.js');
 const { fetchPbp, computeRedZoneStats, teamRedZoneTdRate } = require('../lib/red-zone.js');
 
 let cache = { data: null, timestamp: null, week: null };
@@ -63,6 +64,13 @@ module.exports = async function handler(req, res) {
   // placeholder it already had.
   const rzStats = pbpRows ? computeRedZoneStats(pbpRows, Number(week) - 1) : null;
 
+  // This week's starting QBs (lib/qb-starter): nflverse's named QB unless ESPN's injury report rules
+  // him out, so a backup starting tonight is judged as a backup by the model.
+  const starterList = await Promise.all(schedule.flatMap(g => {
+    const m = getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr);
+    return [[`${g.id || g.gameId}|home`, g.homeAbbr, m.homeQbName], [`${g.id || g.gameId}|away`, g.awayAbbr, m.awayQbName]];
+  }).map(async ([key, abbr, named]) => [key, await resolveStarter({ teamAbbr: abbr, namedQb: named, playerRows: playerSeasonRows || [] }).catch(() => ({ name: named, source: 'unverified' }))]));
+  const starters = new Map(starterList);
   const games = schedule.map(g => {
     const tw = Number(week) - 1;
     const homeRz = rzStats ? teamRedZoneTdRate(rzStats, toNflverseAbbr(g.homeAbbr)) : null;
@@ -74,8 +82,9 @@ module.exports = async function handler(req, res) {
     // Market context (real spread/total line, rest days, key-number/blowout/teaser flags) —
     // blank for games far enough out that no book has posted a line yet; see lib/vegas-lines.js.
     const market = getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr);
-    const homeQbStatus = playerSeasonRows ? qbStatus(market.homeQbName, playerSeasonRows, toNflverseAbbr(g.homeAbbr)) : 'unknown';
-    const awayQbStatus = playerSeasonRows ? qbStatus(market.awayQbName, playerSeasonRows, toNflverseAbbr(g.awayAbbr)) : 'unknown';
+    const homeQb = starters.get(`${g.id || g.gameId}|home`) || { name: market.homeQbName }, awayQb = starters.get(`${g.id || g.gameId}|away`) || { name: market.awayQbName };
+    const homeQbStatus = playerSeasonRows ? qbStatus(homeQb.name, playerSeasonRows, toNflverseAbbr(g.homeAbbr)) : 'unknown';
+    const awayQbStatus = playerSeasonRows ? qbStatus(awayQb.name, playerSeasonRows, toNflverseAbbr(g.awayAbbr)) : 'unknown';
 
     const model = applyGameCalibration(buildGameModel(homeEff, awayEff, {
       weather: gameWeather,
@@ -95,7 +104,7 @@ module.exports = async function handler(req, res) {
 
     return {
       ...g, model, weather: gameWeather, trend,
-      market: { ...market, homeQbStatus, awayQbStatus, marketEdge, homeRedZoneTdRate: homeRz, awayRedZoneTdRate: awayRz },
+      market: { ...market, homeQbName: homeQb.name, awayQbName: awayQb.name, homeQbNote: homeQb.note || null, awayQbNote: awayQb.note || null, homeQbStatus, awayQbStatus, marketEdge, homeRedZoneTdRate: homeRz, awayRedZoneTdRate: awayRz },
     };
   });
 

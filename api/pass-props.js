@@ -9,6 +9,7 @@ const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js
 const { poolFromRoster } = require('../lib/roster-pool.js');
 const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
 const { pickConfirmedStarter } = require('../lib/qb-status.js');
+const { resolveStarter, same } = require('../lib/qb-starter.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
 const { loadCalibration, applyYardsCalibration, seasonAverage } = require('../lib/calibration.js');
@@ -103,10 +104,16 @@ module.exports = async function handler(req, res) {
       // lastWeekPlayed-based guess above whenever it's available — see pickConfirmedStarter's
       // comment in lib/qb-status.js for the real case (Lamar Jackson's return) this fixes.
       const market = getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr);
-      const confirmedName = t.abbr === g.homeAbbr ? market.homeQbName : market.awayQbName;
-      const starter = pickConfirmedStarter(candidates, confirmedName);
+      // The starter: nflverse's named QB unless ESPN's injury report rules him out (lib/qb-starter).
+      const resolved = await resolveStarter({ teamAbbr: t.abbr, namedQb: t.abbr === g.homeAbbr ? market.homeQbName : market.awayQbName, playerRows, roster });
+      let starter = pickConfirmedStarter(candidates, resolved.name);
+      // A backup coming in may have no games in the recent window, so he's not in the pool yet.
+      if (resolved.name && !same(starter.name, resolved.name)) starter = { name: resolved.name, histTeam: toNflverseAbbr(t.abbr), position: 'QB' };
 
-      const usage = computePassUsage(playerRows, starter.name, starter.histTeam, throughWeek, recencyWindow(throughWeek));
+      // No games in the recent window (a backup who last played weeks ago): his whole season instead,
+      // flagged as a thin, older sample rather than dropped.
+      let usage = computePassUsage(playerRows, starter.name, starter.histTeam, throughWeek, recencyWindow(throughWeek)), staleSample = false;
+      if (!usage) { usage = computePassUsage(playerRows, starter.name, starter.histTeam, throughWeek, 18); staleSample = !!usage; }
       if (!usage) continue;
       const defAllowed = computePassDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
       const rawProj = projectPassYards(usage, defAllowed, t.implied, { weather: gameWeather });
@@ -129,6 +136,7 @@ module.exports = async function handler(req, res) {
         badge: sig.badge,
         ci: sig.ci,
         injured: !isHealthy(roster, starter.name),
+        starterNote: resolved.note || null, staleSample,
         injuryStatus: rosterEntry?.injuryStatus || null,
         detail: playerDetail(playerRows, { name: starter.name, team: starter.histTeam, position: 'QB', oppAbbr: toNflverseAbbr(t.oppAbbr), market: 'pass', throughWeek }),
       });

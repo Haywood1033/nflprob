@@ -20,7 +20,10 @@ module.exports = async function handler(req, res) {
   try {
     const projectionData = await buildDfsProjections({ uploadedPlayers: players, year: Number(year), awayAbbr, homeAbbr });
 
-    const pool = projectionData.players.filter(p => p.points > 0);
+    // A QB who isn't this week's starter keeps his projection (shown, lockable) but only enters the
+    // pool when the user locks him in.
+    const isLocked = p => (Array.isArray(lockedIds) && lockedIds.includes(p.id)) || captainLockId === p.id;
+    const pool = projectionData.players.filter(p => p.points > 0 && (!p.benched || isLocked(p)));
     // Capped at 20 to match standard large-field GPP max-entry limits. Each additional lineup
     // only re-runs the knapsack DP once for its candidate captain (a few thousand ops on a
     // ~30-40 player Showdown pool), so even 20 stays well within the request budget — the

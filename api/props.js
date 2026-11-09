@@ -9,6 +9,7 @@ const { poolFromRoster, unmodeledRosterTeammates } = require('../lib/roster-pool
 const { fetchPbp, computeRedZoneStats, playerRedZoneShare, teamRedZoneTdRate } = require('../lib/red-zone.js');
 const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
 const { normalizeQbName } = require('../lib/qb-status.js');
+const { resolveStarter } = require('../lib/qb-starter.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
 const { loadCalibration, applyTdCalibration } = require('../lib/calibration.js');
@@ -144,7 +145,8 @@ module.exports = async function handler(req, res) {
       // pool entirely (he's not actually playing, not just less likely to) and makes sure the
       // confirmed starter is modeled even if the pool builder ranked him too low to include.
       const market = getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr);
-      const confirmedQbName = t.abbr === g.homeAbbr ? market.homeQbName : market.awayQbName;
+      // The starter: nflverse's named QB unless ESPN's injury report rules him out (lib/qb-starter).
+      const confirmedQbName = (await resolveStarter({ teamAbbr: t.abbr, namedQb: t.abbr === g.homeAbbr ? market.homeQbName : market.awayQbName, playerRows, roster: rosterCache[t.abbr] })).name;
       if (confirmedQbName) {
         pool = pool.filter(c => {
           const isQb = playerRows.some(r => r.player_display_name === c.name && r.team === nflverseTeam && r.position === 'QB');

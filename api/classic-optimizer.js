@@ -23,7 +23,10 @@ module.exports = async function handler(req, res) {
   try {
     const projectionData = await buildClassicProjections({ uploadedPlayers: players, year: Number(year) });
 
-    const pool = projectionData.players.filter(p => p.points > 0);
+    // A QB who isn't this week's starter keeps his projection (shown, lockable) but only enters the
+    // pool when the user locks him in.
+    const isLocked = p => (Array.isArray(lockedIds) && lockedIds.includes(p.id));
+    const pool = projectionData.players.filter(p => p.points > 0 && (!p.benched || isLocked(p)));
     // Capped at 20 to match standard large-field GPP max-entry limits, same reasoning as
     // api/lineup-optimizer.js.
     const count = Math.min(Math.max(Number(lineupCount) || 1, 1), 20);
