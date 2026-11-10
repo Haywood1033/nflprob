@@ -475,7 +475,9 @@ const FETCH_CACHE_TTL = 90 * 1000;
 async function cachedJSON(url) {
   const hit = _fetchCache.get(url);
   if (hit && Date.now() - hit.ts < FETCH_CACHE_TTL) return hit.data;
-  const data = await fetch(url).then(r => r.json());
+  // A failed request carries its reason as JSON when the endpoint caught it; otherwise say what came back.
+  const data = await fetch(url).then(async r => { const t = await r.text(); try { return JSON.parse(t); } catch { throw new Error(`${url.split('?')[0]} returned ${r.status}: ${t.slice(0, 160)}`); } });
+  if (data && data.error && !(data.players || []).length) return data; // shown by the tab, not cached
   _fetchCache.set(url, { data, ts: Date.now() });
   return data;
 }
@@ -1075,9 +1077,9 @@ function rushDrawerBody(p) { return playerPanel(p, 'rush'); }
 function renderRushProps(d) {
   setStatus(d.cached, d.stale);
   const allPlayers = d.players || [];
-  if (!allPlayers.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3></div>'; return; }
+  if (!allPlayers.length) { document.getElementById('content').innerHTML = d.error ? errorHTML(d.error) : '<div class="empty"><h3>No player props found</h3></div>'; return; }
   const {matchup,signal} = filterState.rush; const players = filterPlayers(allPlayers, matchup, null, signal);
-  const filterBarHTML = `<div class="filter-bar">${renderMatchupSelect('rush',allPlayers)}<span class="filter-count">${players.length} of ${allPlayers.length} players</span></div>
+  const filterBarHTML = `${d.skipped?.length ? `<div class="pp-warn">Couldn't build ${d.skipped.map(x => x.team).join(', ')} this time: ${ppEsc(d.skipped[0].error)}</div>` : ''}<div class="filter-bar">${renderMatchupSelect('rush',allPlayers)}<span class="filter-count">${players.length} of ${allPlayers.length} players</span></div>
     <div style="margin-bottom:14px">${signalFilterPillsHTML('rush',TAB_SIGNALS.rush,signal)}</div>`;
   const byKey = {};
   const rows = players.map(p => {
@@ -1104,9 +1106,9 @@ function recDrawerBody(p) { return playerPanel(p, 'rec'); }
 function renderRecProps(d) {
   setStatus(d.cached, d.stale);
   const allPlayers = d.players || [];
-  if (!allPlayers.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3></div>'; return; }
+  if (!allPlayers.length) { document.getElementById('content').innerHTML = d.error ? errorHTML(d.error) : '<div class="empty"><h3>No player props found</h3></div>'; return; }
   const {matchup,signal} = filterState.rec; const players = filterPlayers(allPlayers, matchup, null, signal);
-  const filterBarHTML = `<div class="filter-bar">${renderMatchupSelect('rec',allPlayers)}<span class="filter-count">${players.length} of ${allPlayers.length} players</span></div>
+  const filterBarHTML = `${d.skipped?.length ? `<div class="pp-warn">Couldn't build ${d.skipped.map(x => x.team).join(', ')} this time: ${ppEsc(d.skipped[0].error)}</div>` : ''}<div class="filter-bar">${renderMatchupSelect('rec',allPlayers)}<span class="filter-count">${players.length} of ${allPlayers.length} players</span></div>
     <div style="margin-bottom:14px">${signalFilterPillsHTML('rec',TAB_SIGNALS.rec,signal)}</div>`;
   const byKey = {};
   const rows = players.map(p => {

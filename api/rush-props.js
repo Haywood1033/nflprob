@@ -42,7 +42,7 @@ function topRushersForTeamFallback(playerRows, teamEspnAbbr, throughWeek, count 
     .sort((a, b) => b.lastWeekPlayed - a.lastWeekPlayed || b.volume - a.volume).slice(0, count);
 }
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
 
   const week = req.query.week;
@@ -73,6 +73,7 @@ module.exports = async function handler(req, res) {
   const throughWeek = Number(week) - 1;
   const cal = await loadCalibration(); // backtest-fitted yardage calibration; none = the raw model
   const players = [];
+  const skipped = []; // teams whose build failed: reported, never fatal to the rest of the slate
 
   const distinctAbbrs = [...new Set(schedule.flatMap(g => [g.homeAbbr, g.awayAbbr]))];
   const rosterEntries = await Promise.all(distinctAbbrs.map(async abbr => [abbr, await fetchTeamRoster(abbr)]));
@@ -89,6 +90,7 @@ module.exports = async function handler(req, res) {
     ];
 
     for (const t of teamsInGame) {
+      try {
       const roster = rosterCache[t.abbr];
 
       const pool = poolFromRoster(roster, playerRows, ['RB'], 'carries', 4, throughWeek)
@@ -139,16 +141,30 @@ module.exports = async function handler(req, res) {
           detail: playerDetail(playerRows, { name: candidate.name, team: candidate.histTeam, position, oppAbbr: toNflverseAbbr(t.oppAbbr), market: 'rush', throughWeek }),
         });
       }
+      } catch (err) {
+        console.error(`rushing-props: ${t.abbr} failed`, err);
+        skipped.push({ team: t.name, error: err.message });
+      }
     }
   }
 
   players.sort((a, b) => b.projected - a.projected);
 
-  const data = { week, year, players, timestamp: Date.now(), elapsed: Date.now() - start };
+  const data = { week, year, players, skipped, timestamp: Date.now(), elapsed: Date.now() - start };
   cache = { data, timestamp: Date.now(), week };
   // Short CDN cache — see api/props.js for the reasoning (60s balances "tabs feel slow with
   // zero edge caching" against "a deploy looks broken for 30+ minutes," which the old
   // no-store/long-s-maxage extremes each hit).
   res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=30');
   return res.status(200).json(data);
+};
+
+// Any failure outside the per-team builds comes back as JSON with its message (the page shows
+// it), not as a bare server error page.
+module.exports = async function (req, res) {
+  try { return await handler(req, res); }
+  catch (err) {
+    console.error('rushing-props failed', err);
+    return res.status(500).json({ week: req.query?.week, players: [], error: `Rushing props failed: ${err.message}` });
+  }
 };
