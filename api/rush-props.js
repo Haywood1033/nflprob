@@ -10,7 +10,7 @@ const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
 const { resolveStarter } = require('../lib/qb-starter.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
-const { loadCalibration, applyYardsCalibration, seasonAverage } = require('../lib/calibration.js');
+const { loadCalibration, applyYardsCalibration, seasonAverage, blendVolume } = require('../lib/calibration.js');
 
 let cache = { data: null, timestamp: null, week: null };
 // A starting QB joins the rushing board when he averages this many carries a game lately
@@ -128,6 +128,7 @@ module.exports = async function handler(req, res) {
           floor: proj.floor,
           ceiling: proj.ceiling,
           carries: usage.carries,
+          projCarries: blendVolume(rawProj.projCarries, usage.carries / usage.games), // see lib/calibration.js
           signals: sig.signals,
           signalCount: sig.count,
           badge: sig.badge,

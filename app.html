@@ -646,6 +646,7 @@ function playerPanel(p, market) {
        ['Touches (L5)', volL5 ?? '—'], ['Touch share (L3)', ppPct(d?.shareL3)],
        ['Inside-the-10 share', p.inside10Share != null ? ppPct(p.inside10Share) : '—'], ['Opp vs position', d?.oppRank ? `${ppOrd(d.oppRank.rank)} of ${d.oppRank.of}` : '—']]
     : [['Projection', `${p.projected} yds`], ['Floor – ceiling', `${p.floor}–${p.ceiling}`], ['Over projection', games.length ? `${over} of ${games.length}` : '—'],
+       ...(market === 'rush' && p.projCarries != null ? [['Proj carries', p.projCarries]] : market === 'rec' && p.projReceptions != null ? [['Proj receptions', p.projReceptions]] : []),
        [`${d?.volLabel || 'Volume'} (L5)`, volL5 ?? '—'], [market === 'pass' ? 'TDs (season)' : 'Share (L3)', market === 'pass' ? games.reduce((x, g) => x + g.tds, 0) : ppPct(d?.shareL3)], ['Opp vs position', d?.oppRank ? `${ppOrd(d.oppRank.rank)} of ${d.oppRank.of}` : '—']];
   const sigs = (p.signals || []).map(s => `<div class="pp-signal"><span class="pp-tag ${s.active ? 'on' : ''}">${s.active ? '✓' : '·'} ${ppEsc(s.label)}</span><p>${ppEsc(ppSignalReason(s, d, p, market))}</p></div>`).join('');
   return `
@@ -1085,11 +1086,11 @@ function renderRushProps(d) {
     const unmodeledFlag = p.unmodeledTeammates?.length ? ` <span style="color:var(--amber)" title="${p.unmodeledTeammates.join(', ')} is active on the roster with no recorded usage this season — this projection doesn't account for them">⚠</span>` : '';
     return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}${unmodeledFlag}</td>
       <td class="td-pos">${p.position||'RB'}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td><td class="td-touch">${p.floor}–${p.ceiling}</td>
-      <td class="td-touch">${p.carries}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
+      <td class="td-touch">${p.projCarries ?? '—'}</td><td class="td-touch">${p.carries}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
   }).join('');
   document.getElementById('content').innerHTML = filterBarHTML + `<div class="table-scroll"><table class="td-table">
-    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Carries (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
-    <tbody>${rows||'<tr><td colspan="8" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
+    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Proj Carries</th><th class="num-col">Carries (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="9" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
   document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => { const p = byKey[row.dataset.expandKey]; openDrawer(playerDrawerHeader(p), rushDrawerBody(p)); }));
   attachSignalFilterHandlers('rush', label => { filterState.rush.signal = label; renderRushProps(d); });
   attachFilterHandlers('rush', renderRushProps);
@@ -1113,11 +1114,11 @@ function renderRecProps(d) {
     const key = rowKey(p); byKey[key] = p;
     return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
       <td class="td-pos">${p.position}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td>
-      <td class="td-touch">${p.floor}–${p.ceiling}</td><td class="td-touch">${p.targets}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
+      <td class="td-touch">${p.floor}–${p.ceiling}</td><td class="td-touch">${p.projReceptions ?? '—'}</td><td class="td-touch">${p.targets}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
   }).join('');
   document.getElementById('content').innerHTML = filterBarHTML + `<div class="table-scroll"><table class="td-table">
-    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Targets (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
-    <tbody>${rows||'<tr><td colspan="8" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
+    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Proj Rec</th><th class="num-col">Targets (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="9" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
   document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => { const p = byKey[row.dataset.expandKey]; openDrawer(playerDrawerHeader(p), recDrawerBody(p)); }));
   attachSignalFilterHandlers('rec', label => { filterState.rec.signal = label; renderRecProps(d); });
   attachFilterHandlers('rec', renderRecProps);
@@ -1174,10 +1175,10 @@ function buildAllPlaysPool(raw) {
     detailStats:[['Anytime TD Probability', p.prob+'%'],['Touches (L5)', p.touches]] }));
   const rush = raw.rush.map(p => ({ name:p.name, propType:'RUSH', typeLabel:'RUSH', position:p.position||'RB', team:p.team, opponent:p.opponent, gameId:p.gameId,
     displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/200)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci, src:p,
-    detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Carries (L5)', p.carries]] }));
+    detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Proj Carries', p.projCarries ?? '—'],['Carries (L5)', p.carries]] }));
   const rec = raw.rec.map(p => ({ name:p.name, propType:'REC', typeLabel:'REC', position:p.position, team:p.team, opponent:p.opponent, gameId:p.gameId,
     displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/150)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci, src:p,
-    detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Targets (L5)', p.targets]] }));
+    detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Proj Receptions', p.projReceptions ?? '—'],['Targets (L5)', p.targets]] }));
   const pass = raw.pass.map(p => ({ name:p.name, propType:'PASS', typeLabel:'PASS', position:'QB', team:p.team, opponent:p.opponent, gameId:p.gameId,
     displayValue:p.projected+' yds', normalizedValue:Math.min(100,(p.projected/350)*100), rawValue:p.projected, signalCount:p.signalCount, badge:p.badge, signals:p.signals, ci:p.ci, src:p,
     detailStats:[['Projected Yds', p.projected],['Floor – Ceiling', p.floor+' – '+p.ceiling],['Attempts (L5)', p.attempts]] }));

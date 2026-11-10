@@ -42,3 +42,15 @@ test('rushing model takes a QB; receiving model takes an RB when asked', () => {
   assert.equal(computeRecUsage(rows, 'James Cook', 'BUF', 8, 5), null);
   assert.equal(computeRecUsage(rows, 'James Cook', 'BUF', 8, 5, { positions: ['WR', 'TE', 'RB'] }).targets, 9);
 });
+
+test('projected receptions: targets × catch rate pulled toward the position rate; volume blend', () => {
+  const { projectRecYards } = require('../lib/rec-scoring.js');
+  const { blendVolume } = require('../lib/calibration.js');
+  const u = { position: 'WR', targets: 40, receptions: 32, recYards: 400, games: 5, stdDev: 20 }; // 80% catch rate on 8 targets/game
+  const p = projectRecYards(u, null, null);
+  assert.equal(p.projTargets, 8);
+  assert.ok(p.catchRate > 0.623 && p.catchRate < 0.8); // shrunk toward the WR rate
+  assert.equal(p.projReceptions, +(8 * p.catchRate).toFixed(1));
+  assert.equal(blendVolume(8, 4), 5);          // 25% model, 75% recent average
+  assert.equal(blendVolume(null, 4.04), 4);
+});

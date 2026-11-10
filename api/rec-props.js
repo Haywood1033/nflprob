@@ -8,7 +8,7 @@ const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js
 const { poolFromRoster } = require('../lib/roster-pool.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
-const { loadCalibration, applyYardsCalibration, seasonAverage } = require('../lib/calibration.js');
+const { loadCalibration, applyYardsCalibration, seasonAverage, blendVolume } = require('../lib/calibration.js');
 
 let cache = { data: null, timestamp: null, week: null };
 // Pass-catching backs join the receiving board at this many targets a game lately.
@@ -115,6 +115,7 @@ module.exports = async function handler(req, res) {
           floor: proj.floor,
           ceiling: proj.ceiling,
           targets: usage.targets,
+          projReceptions: blendVolume(rawProj.projReceptions, usage.receptions / usage.games), // see lib/calibration.js
           signals: sig.signals,
           signalCount: sig.count,
           badge: sig.badge,
