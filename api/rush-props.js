@@ -5,12 +5,17 @@ const { buildGameModel } = require('../lib/team-scoring.js');
 const { computeRushUsage, computeRushDefenseAllowed, projectRushYards, getRushSignals } = require('../lib/rush-scoring.js');
 const { recencyWindow, recentGames } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
-const { poolFromRoster, unmodeledRosterTeammates } = require('../lib/roster-pool.js');
+const { poolFromRoster, unmodeledRosterTeammates, findHistoricalTeam } = require('../lib/roster-pool.js');
+const { fetchGames, getMarketContext } = require('../lib/vegas-lines.js');
+const { resolveStarter } = require('../lib/qb-starter.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
 const { loadCalibration, applyYardsCalibration, seasonAverage } = require('../lib/calibration.js');
 
 let cache = { data: null, timestamp: null, week: null };
+// A starting QB joins the rushing board when he averages this many carries a game lately
+// (Josh Allen ~8, Jayden Daniels ~5); a pocket passer's 1-2 kneel-downs and sneaks don't.
+const QB_MIN_CARRIES = 3;
 const CACHE_TTL = 30 * 60 * 1000;
 
 // Recency-limited, same reasoning as poolFromRoster's fix: rank by who's actually getting
@@ -58,9 +63,10 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({ week, players: [], error: 'No schedule found' });
   }
 
-  const [teamRows, playerRows] = await Promise.all([
+  const [teamRows, playerRows, marketGames] = await Promise.all([
     fetchTeamWeekStats(year),
     fetchPlayerWeekStats(year),
+    fetchGames().catch(() => null),
   ]);
   if (!playerRows?.length) return res.status(200).json({ week, players: [], error: 'Player stats unavailable' });
 
@@ -92,8 +98,18 @@ module.exports = async function handler(req, res) {
       // comment in lib/roster-pool.js for why this is flagged rather than silently ignored.
       const unmodeled = unmodeledRosterTeammates(roster, playerRows, ['RB']);
 
+      // This week's starting QB (lib/qb-starter — the same answer as the passing tab), if he runs.
+      const market = marketGames ? getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr) : {};
+      const qb = await resolveStarter({ teamAbbr: t.abbr, namedQb: t.abbr === g.homeAbbr ? market.homeQbName : market.awayQbName, playerRows, roster }).catch(() => null);
+      const qbTeam = qb?.name && findHistoricalTeam(playerRows.filter(r => r.position === 'QB'), qb.name);
+      if (qbTeam) {
+        const u = computeRushUsage(playerRows, qb.name, qbTeam, throughWeek, recencyWindow(throughWeek), { position: 'QB' });
+        if (u && u.carries / u.games >= QB_MIN_CARRIES) pool.push({ name: qb.name, histTeam: qbTeam, position: 'QB' });
+      }
+
       for (const candidate of pool) {
-        const usage = computeRushUsage(playerRows, candidate.name, candidate.histTeam, throughWeek, recencyWindow(throughWeek));
+        const position = candidate.position === 'QB' ? 'QB' : 'RB';
+        const usage = computeRushUsage(playerRows, candidate.name, candidate.histTeam, throughWeek, recencyWindow(throughWeek), { position });
         if (!usage) continue;
         const defAllowed = computeRushDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
         const rawProj = projectRushYards(usage, defAllowed, t.implied);
@@ -104,6 +120,7 @@ module.exports = async function handler(req, res) {
 
         players.push({
           name: candidate.name,
+          position,
           team: t.name,
           opponent: teamsInGame.find(x => x.abbr !== t.abbr).name,
           gameId: g.gameId,
@@ -117,8 +134,8 @@ module.exports = async function handler(req, res) {
           ci: sig.ci,
           injured: !isHealthy(roster, candidate.name),
           injuryStatus: rosterEntry?.injuryStatus || null,
-          unmodeledTeammates: unmodeled.filter(u => u.name !== candidate.name).map(u => u.name),
-          detail: playerDetail(playerRows, { name: candidate.name, team: candidate.histTeam, position: 'RB', oppAbbr: toNflverseAbbr(t.oppAbbr), market: 'rush', throughWeek }),
+          unmodeledTeammates: position === 'RB' ? unmodeled.filter(u => u.name !== candidate.name).map(u => u.name) : [],
+          detail: playerDetail(playerRows, { name: candidate.name, team: candidate.histTeam, position, oppAbbr: toNflverseAbbr(t.oppAbbr), market: 'rush', throughWeek }),
         });
       }
     }

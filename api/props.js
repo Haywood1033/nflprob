@@ -57,16 +57,17 @@ function tdPoolFromRoster(roster, playerRows, count = 8, throughWeek = -1) {
   if (!roster || Object.keys(roster).length === 0) return null;
   const candidates = Object.values(roster).filter(entry => TD_POSITIONS.includes(entry.position) && !entry.definitelyOut);
 
-  const { findHistoricalTeam } = require('../lib/roster-pool.js');
+  const { findHistoricalTeam, statsName } = require('../lib/roster-pool.js');
   const lastN = recencyWindow(throughWeek);
   const withVolume = candidates.map(entry => {
-    const histTeam = findHistoricalTeam(playerRows, entry.displayName);
+    const name = statsName(playerRows, entry.displayName, entry.position); // ESPN "James Cook III" = nflverse "James Cook"
+    const histTeam = name && findHistoricalTeam(playerRows, name);
     if (!histTeam) return null;
-    const candidateRows = playerRows.filter(r => r.player_display_name === entry.displayName && r.team === histTeam && r.season_type === 'REG');
+    const candidateRows = playerRows.filter(r => r.player_display_name === name && r.team === histTeam && r.season_type === 'REG');
     const rows = recentGames(candidateRows, throughWeek, lastN);
     const touches = rows.reduce((s, r) => s + (parseFloat(r.targets) || 0) + (parseFloat(r.carries) || 0), 0);
     const lastWeekPlayed = rows.length ? Math.max(...rows.map(r => Number(r.week))) : -1;
-    return { name: entry.displayName, position: entry.position, histTeam, volume: touches, lastWeekPlayed };
+    return { name, displayName: entry.displayName, position: entry.position, histTeam, volume: touches, lastWeekPlayed };
   }).filter(Boolean);
 
   // Who played most recently wins first — see lib/roster-pool.js's poolFromRoster for the full
@@ -165,7 +166,9 @@ module.exports = async function handler(req, res) {
       const unmodeled = unmodeledRosterTeammates(roster, playerRows, TD_POSITIONS.filter(p => p !== 'QB'));
 
       for (const candidate of pool) {
-        const usage = computePlayerUsage(playerRows, candidate.name, throughWeek, recencyWindow(throughWeek));
+        let usage = computePlayerUsage(playerRows, candidate.name, throughWeek, recencyWindow(throughWeek));
+        // The confirmed starter coming off the bench (no games in the window): his season instead.
+        if (!usage && confirmedQbName && normalizeQbName(candidate.name) === normalizeQbName(confirmedQbName)) usage = computePlayerUsage(playerRows, candidate.name, throughWeek, 18);
         if (!usage) continue;
         const defAllowed = computeDefenseAllowedToPosition(playerRows, t.oppAbbr, usage.position, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
         const rzShare = rzStats ? playerRedZoneShare(rzStats, toNflverseAbbr(t.abbr), usage.playerId) : null;

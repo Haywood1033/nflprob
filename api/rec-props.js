@@ -11,6 +11,9 @@ const { playerDetail } = require('../lib/player-detail.js');
 const { loadCalibration, applyYardsCalibration, seasonAverage } = require('../lib/calibration.js');
 
 let cache = { data: null, timestamp: null, week: null };
+// Pass-catching backs join the receiving board at this many targets a game lately.
+const RB_MIN_TARGETS = 2;
+const REC_POSITIONS = { positions: ['WR', 'TE', 'RB'] };
 const CACHE_TTL = 30 * 60 * 1000;
 
 // Fallback ONLY used if the live roster fetch failed. Recency-limited, same reasoning as
@@ -88,10 +91,13 @@ module.exports = async function handler(req, res) {
 
       const pool = poolFromRoster(roster, playerRows, ['WR', 'TE'], 'targets', 5, throughWeek)
         || topReceiversForTeamFallback(playerRows, t.abbr, throughWeek);
+      // The team's top two backs by recent targets, kept only if they're real pass-catchers.
+      for (const rb of (roster && Object.keys(roster).length ? poolFromRoster(roster, playerRows, ['RB'], 'targets', 2, throughWeek) : []) || []) pool.push(rb);
 
       for (const candidate of pool) {
-        const usage = computeRecUsage(playerRows, candidate.name, candidate.histTeam, throughWeek, recencyWindow(throughWeek));
+        const usage = computeRecUsage(playerRows, candidate.name, candidate.histTeam, throughWeek, recencyWindow(throughWeek), REC_POSITIONS);
         if (!usage) continue;
+        if (usage.position === 'RB' && usage.targets / usage.games < RB_MIN_TARGETS) continue;
         const defAllowed = computeRecDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
         const rawProj = projectRecYards(usage, defAllowed, t.implied);
         if (!rawProj) continue;
