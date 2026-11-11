@@ -1,7 +1,7 @@
-const { fetchWeekSchedule } = require('../lib/schedule.js');
+const { fetchWeekSchedule, seasonFromQuery } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
-const { fetchAllWeather } = require('../lib/weather.js');
+const { fetchGameWeather } = require('../lib/weather.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
 const { computePassUsage, computePassDefenseAllowed, projectPassYards, getPassSignals } = require('../lib/pass-scoring.js');
 const { recencyWindow, recentGames } = require('../lib/recency-window.js');
@@ -14,7 +14,7 @@ const { resolveStarter, same } = require('../lib/qb-starter.js');
 const { playerDetail } = require('../lib/player-detail.js');
 const { loadCalibration, applyYardsCalibration, seasonAverage } = require('../lib/calibration.js');
 
-let cache = { data: null, timestamp: null, week: null };
+let cache = { data: null, timestamp: null, key: null };
 const CACHE_TTL = 30 * 60 * 1000;
 
 // Recency-limited, same reasoning as poolFromRoster's fix: rank by who's actually throwing
@@ -46,11 +46,12 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
 
   const week = req.query.week;
-  const year = req.query.year || new Date().getFullYear();
+  const year = seasonFromQuery(req.query);
   if (!week) return res.status(400).json({ error: 'week query param required, e.g. ?week=1' });
+  const cacheKey = `${year}|${week}`;
 
   const age = cache.timestamp ? Date.now() - cache.timestamp : Infinity;
-  if (cache.week === week && age < CACHE_TTL && cache.data) {
+  if (cache.key === cacheKey && age < CACHE_TTL && cache.data) {
     return res.status(200).json({ ...cache.data, cached: true });
   }
 
@@ -59,7 +60,7 @@ module.exports = async function handler(req, res) {
   if (!schedule?.length) {
     // See api/team-model.js's identical fallback for the reasoning — a transient ESPN hiccup
     // shouldn't wipe out a session that already saw real data for this week.
-    if (cache.week === week && cache.data) return res.status(200).json({ ...cache.data, cached: true, stale: true });
+    if (cache.key === cacheKey && cache.data) return res.status(200).json({ ...cache.data, cached: true, stale: true });
     return res.status(200).json({ week, players: [], error: 'No schedule found' });
   }
 
@@ -69,14 +70,17 @@ module.exports = async function handler(req, res) {
   ]);
   if (!playerRows?.length) return res.status(200).json({ week, players: [], error: 'Player stats unavailable' });
 
-  const homeTeams = schedule.map(g => g.homeTeam);
   const distinctAbbrs = [...new Set(schedule.flatMap(g => [g.homeAbbr, g.awayAbbr]))];
 
-  const [weather, rosterEntries, marketGames] = await Promise.all([
-    fetchAllWeather(new Date().toLocaleDateString('en-CA'), homeTeams, {}),
+  const [rosterEntries, marketGames] = await Promise.all([
     Promise.all(distinctAbbrs.map(async abbr => [abbr, await fetchTeamRoster(abbr)])),
     fetchGames().catch(() => null),
   ]);
+  // Each game's own kickoff-hour forecast (see api/team-model.js).
+  const weather = await fetchGameWeather(schedule.map(g => ({
+    key: g.gameId, homeTeam: g.homeTeam, date: g.date, indoor: g.indoor, neutralSite: g.neutralSite,
+    roof: getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr).roof,
+  })));
   const rosterCache = Object.fromEntries(rosterEntries);
 
   const throughWeek = Number(week) - 1;
@@ -86,8 +90,8 @@ module.exports = async function handler(req, res) {
   for (const g of schedule) {
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek) : null;
     const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, throughWeek) : null;
-    const model = buildGameModel(homeEff, awayEff, {});
-    const gameWeather = weather[g.homeTeam] || {};
+    const model = buildGameModel(homeEff, awayEff, { neutralSite: g.neutralSite });
+    const gameWeather = weather[g.gameId] || {};
 
     const teamsInGame = [
       { abbr: g.homeAbbr, name: g.homeTeam, oppAbbr: g.awayAbbr, implied: model.homeImplied },
@@ -146,7 +150,7 @@ module.exports = async function handler(req, res) {
   players.sort((a, b) => b.projected - a.projected);
 
   const data = { week, year, players, timestamp: Date.now(), elapsed: Date.now() - start };
-  cache = { data, timestamp: Date.now(), week };
+  cache = { data, timestamp: Date.now(), key: cacheKey };
   // Short CDN cache — see api/props.js for the reasoning (60s balances "tabs feel slow with
   // zero edge caching" against "a deploy looks broken for 30+ minutes," which the old
   // no-store/long-s-maxage extremes each hit).

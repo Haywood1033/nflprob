@@ -1,4 +1,4 @@
-const { fetchWeekSchedule } = require('../lib/schedule.js');
+const { fetchWeekSchedule, seasonFromQuery } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
@@ -14,7 +14,7 @@ const { resolveStarter } = require('../lib/qb-starter.js');
 const { playerDetail } = require('../lib/player-detail.js');
 const { loadCalibration, applyTdCalibration } = require('../lib/calibration.js');
 
-let cache = { data: null, timestamp: null, week: null };
+let cache = { data: null, timestamp: null, key: null };
 const CACHE_TTL = 30 * 60 * 1000;
 const TD_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
 
@@ -80,11 +80,12 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
 
   const week = req.query.week;
-  const year = req.query.year || new Date().getFullYear();
+  const year = seasonFromQuery(req.query);
   if (!week) return res.status(400).json({ error: 'week query param required, e.g. ?week=1' });
+  const cacheKey = `${year}|${week}`;
 
   const age = cache.timestamp ? Date.now() - cache.timestamp : Infinity;
-  if (cache.week === week && age < CACHE_TTL && cache.data) {
+  if (cache.key === cacheKey && age < CACHE_TTL && cache.data) {
     return res.status(200).json({ ...cache.data, cached: true });
   }
 
@@ -93,7 +94,7 @@ module.exports = async function handler(req, res) {
   if (!schedule?.length) {
     // See api/team-model.js's identical fallback for the reasoning — a transient ESPN hiccup
     // shouldn't wipe out a session that already saw real data for this week.
-    if (cache.week === week && cache.data) return res.status(200).json({ ...cache.data, cached: true, stale: true });
+    if (cache.key === cacheKey && cache.data) return res.status(200).json({ ...cache.data, cached: true, stale: true });
     return res.status(200).json({ week, players: [], error: 'No schedule found' });
   }
 
@@ -124,7 +125,7 @@ module.exports = async function handler(req, res) {
     const awayRz = rzStats ? teamRedZoneTdRate(rzStats, toNflverseAbbr(g.awayAbbr)) : null;
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek, undefined, homeRz) : null;
     const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, throughWeek, undefined, awayRz) : null;
-    const model = buildGameModel(homeEff, awayEff, {});
+    const model = buildGameModel(homeEff, awayEff, { neutralSite: g.neutralSite });
 
     const teamsInGame = [
       { abbr: g.homeAbbr, name: g.homeTeam, oppAbbr: g.awayAbbr, implied: model.homeImplied },
@@ -203,7 +204,7 @@ module.exports = async function handler(req, res) {
   players.sort((a, b) => b.prob - a.prob);
 
   const data = { week, year, players, timestamp: Date.now(), elapsed: Date.now() - start };
-  cache = { data, timestamp: Date.now(), week };
+  cache = { data, timestamp: Date.now(), key: cacheKey };
   // Short CDN cache (60s) — a full request here does several external fetches (ESPN roster
   // per team, nflverse CSVs) and was measurably slow on every single tab load with no edge
   // caching at all. 60s is short enough that a real deploy is only briefly stale (self-heals

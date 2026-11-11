@@ -24,7 +24,7 @@ const { computePlayerUsage, computeDefenseAllowedToPosition, anytimeTdProb } = r
 const { computeRushUsage, computeRushDefenseAllowed, projectRushYards } = require('../lib/rush-scoring.js');
 const { computeRecUsage, computeRecDefenseAllowed, projectRecYards } = require('../lib/rec-scoring.js');
 const { computePassUsage, computePassDefenseAllowed, projectPassYards } = require('../lib/pass-scoring.js');
-const { ESPN_TEAM_NAME } = require('../lib/schedule.js');
+const { ESPN_TEAM_NAME, seasonFromQuery } = require('../lib/schedule.js');
 const { recencyWindow } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isOnRoster } = require('../lib/roster.js');
 
@@ -51,9 +51,9 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
 
   const category = req.query.category || 'wins';
-  const year = req.query.year || new Date().getFullYear();
+  const year = seasonFromQuery(req.query);
 
-  const cacheKey = category;
+  const cacheKey = `${year}|${category}`;
   const age = cache.timestamp[cacheKey] ? Date.now() - cache.timestamp[cacheKey] : Infinity;
   if (age < CACHE_TTL && cache.data[cacheKey]) {
     return res.status(200).json({ ...cache.data[cacheKey], cached: true });

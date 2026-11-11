@@ -472,7 +472,14 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawe
 // starts empty, so this can never show data older than one page visit.
 const _fetchCache = new Map();
 const FETCH_CACHE_TTL = 90 * 1000;
+// The season every per-week endpoint should use (from /api/current-week, or ?year= in the URL).
+// Weeks 17-18 are played in January, so the server can't infer it from today's date alone.
+const SEASON_ENDPOINTS = /^\/api\/(team-model|props|rush-props|rec-props|pass-props|season)\?/;
+function withSeason(url) {
+  return season && SEASON_ENDPOINTS.test(url) && !/[?&]year=/.test(url) ? url + '&year=' + encodeURIComponent(season) : url;
+}
 async function cachedJSON(url) {
+  url = withSeason(url);
   const hit = _fetchCache.get(url);
   if (hit && Date.now() - hit.ts < FETCH_CACHE_TTL) return hit.data;
   // A failed request carries its reason as JSON when the endpoint caught it; otherwise say what came back.
@@ -484,6 +491,7 @@ async function cachedJSON(url) {
 
 const params = new URLSearchParams(location.search);
 let week = params.get('week'); // null if not explicitly given in the URL - auto-detected below in that case
+let season = params.get('year'); // same: the NFL season, auto-detected from /api/current-week when not given
 document.getElementById('weekLabel').textContent = 'Week —';
 let currentTab = 'week';
 const rawData = { td: null, rush: null, rec: null, pass: null };
@@ -858,7 +866,7 @@ function buildPredictionsSnapshot(teamData, props) {
 // show the real outcome — fetch() alone only rejects on network failure, not on a 4xx/5xx
 // response, so without checking res.ok a failed DB write looked identical to a successful one.
 async function maybeSnapshotWeek(teamData, props) {
-  if (!realCurrentWeek || Number(teamData.week) !== Number(realCurrentWeek)) return { skipped: true, reason: 'not the current week' };
+  if (!realCurrentWeek || Number(teamData.week) !== Number(realCurrentWeek) || (realCurrentYear && Number(teamData.year) !== Number(realCurrentYear))) return { skipped: true, reason: 'not the current week' };
   const key = teamData.year + '-W' + String(teamData.week).padStart(2, '0');
   if (_snapshotAttempted.has(key)) return { skipped: true, reason: 'already attempted this page load' };
   _snapshotAttempted.add(key);
@@ -2276,12 +2284,14 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 // accuracy snapshots (see buildPredictionsSnapshot below) never fire for a week the user is
 // just browsing historically via ?week=, which would "predict" an already-decided game and
 // silently corrupt the accuracy tracking with hindsight.
-let realCurrentWeek = null;
+let realCurrentWeek = null, realCurrentYear = null;
 
 async function initApp() {
   try {
     const current = await cachedJSON('/api/current-week');
     realCurrentWeek = current.week || null;
+    realCurrentYear = current.year || null;
+    if (!season && current.year) season = String(current.year);
   } catch (e) { /* leave null — snapshot guard just stays closed */ }
   if (!week) {
     // No ?week= given explicitly — ask ESPN what the current real week actually is, instead

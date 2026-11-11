@@ -1,4 +1,4 @@
-const { fetchWeekSchedule } = require('../lib/schedule.js');
+const { fetchWeekSchedule, seasonFromQuery } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
@@ -10,7 +10,7 @@ const { poolFromRoster } = require('../lib/roster-pool.js');
 const { playerDetail } = require('../lib/player-detail.js');
 const { loadCalibration, applyYardsCalibration, seasonAverage, blendVolume } = require('../lib/calibration.js');
 
-let cache = { data: null, timestamp: null, week: null };
+let cache = { data: null, timestamp: null, key: null };
 // Pass-catching backs join the receiving board at this many targets a game lately.
 const RB_MIN_TARGETS = 2;
 const REC_POSITIONS = { positions: ['WR', 'TE', 'RB'] };
@@ -45,11 +45,12 @@ async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
 
   const week = req.query.week;
-  const year = req.query.year || new Date().getFullYear();
+  const year = seasonFromQuery(req.query);
   if (!week) return res.status(400).json({ error: 'week query param required, e.g. ?week=1' });
+  const cacheKey = `${year}|${week}`;
 
   const age = cache.timestamp ? Date.now() - cache.timestamp : Infinity;
-  if (cache.week === week && age < CACHE_TTL && cache.data) {
+  if (cache.key === cacheKey && age < CACHE_TTL && cache.data) {
     return res.status(200).json({ ...cache.data, cached: true });
   }
 
@@ -58,7 +59,7 @@ async function handler(req, res) {
   if (!schedule?.length) {
     // See api/team-model.js's identical fallback for the reasoning — a transient ESPN hiccup
     // shouldn't wipe out a session that already saw real data for this week.
-    if (cache.week === week && cache.data) return res.status(200).json({ ...cache.data, cached: true, stale: true });
+    if (cache.key === cacheKey && cache.data) return res.status(200).json({ ...cache.data, cached: true, stale: true });
     return res.status(200).json({ week, players: [], error: 'No schedule found' });
   }
 
@@ -80,7 +81,7 @@ async function handler(req, res) {
   for (const g of schedule) {
     const homeEff = teamRows ? computeTeamEfficiency(teamRows, g.homeAbbr, throughWeek) : null;
     const awayEff = teamRows ? computeTeamEfficiency(teamRows, g.awayAbbr, throughWeek) : null;
-    const model = buildGameModel(homeEff, awayEff, {});
+    const model = buildGameModel(homeEff, awayEff, { neutralSite: g.neutralSite });
 
     const teamsInGame = [
       { abbr: g.homeAbbr, name: g.homeTeam, oppAbbr: g.awayAbbr, implied: model.homeImplied },
@@ -137,7 +138,7 @@ async function handler(req, res) {
   players.sort((a, b) => b.projected - a.projected);
 
   const data = { week, year, players, skipped, timestamp: Date.now(), elapsed: Date.now() - start };
-  cache = { data, timestamp: Date.now(), week };
+  cache = { data, timestamp: Date.now(), key: cacheKey };
   // Short CDN cache — see api/props.js for the reasoning (60s balances "tabs feel slow with
   // zero edge caching" against "a deploy looks broken for 30+ minutes," which the old
   // no-store/long-s-maxage extremes each hit).
