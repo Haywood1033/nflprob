@@ -23,9 +23,6 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
 
 ## Open items
 
-- `docs/review-findings.md`: code and design review (4 bugs, model gaps, track-record and UI
-  items), in the order to work through them.
-
 - The QB fix relies on ESPN's injury report; if ESPN lags, the app can name an injured starter.
 - DFS projects QB rushing and RB receiving from plain recent averages (the props tabs use the
   matchup-adjusted models). Only switch DFS after the backtest shows the models are better.
