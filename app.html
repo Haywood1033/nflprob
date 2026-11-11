@@ -2310,15 +2310,22 @@ initApp();
 // mutation, unrelated to layout) "fixed" the spacing with no CSS change at all — proof the
 // stale calculation, not the actual CSS, was the bug. This forces that same reflow immediately
 // on rotation/resize instead of leaving the user to stumble into a fix by switching tabs.
-let _reflowRaf = null;
+// Only on a real width change (rotation): mobile browsers also fire resize when the address bar
+// collapses or reappears during a scroll, and hiding the page then throws the scroll position
+// away mid-gesture, leaving the top of the page stuck half off-screen.
+let _reflowRaf = null, _lastWidth = window.innerWidth;
 function _forceLayoutReflow() {
+  if (window.innerWidth === _lastWidth) return;
+  _lastWidth = window.innerWidth;
   if (_reflowRaf != null) cancelAnimationFrame(_reflowRaf);
   _reflowRaf = requestAnimationFrame(() => {
     _reflowRaf = null;
+    const x = window.scrollX, y = window.scrollY;
     const prev = document.body.style.display;
     document.body.style.display = 'none';
     void document.body.offsetHeight; // synchronous layout flush
     document.body.style.display = prev;
+    window.scrollTo(x, y);
   });
 }
 window.addEventListener('orientationchange', _forceLayoutReflow);
