@@ -12,7 +12,7 @@ const { loadCalibration, applyGameCalibration } = require('../lib/calibration.js
 const { recencyWindow } = require('../lib/recency-window.js');
 const { fetchGames } = require('../lib/nflverse-games.js');
 const { teamTrend } = require('../lib/team-trend.js');
-const { getMarketContext, marketEdge } = require('../lib/vegas-lines.js');
+const { getMarketContext, marketEdge, withEspnLine } = require('../lib/vegas-lines.js');
 const { fetchPlayerWeekStats } = require('../lib/player-stats.js');
 const { qbStatus } = require('../lib/qb-status.js');
 const { resolveStarter } = require('../lib/qb-starter.js');
@@ -85,7 +85,8 @@ module.exports = async function handler(req, res) {
 
     // Market context (real spread/total line, rest days, key-number/blowout/teaser flags) —
     // blank for games far enough out that no book has posted a line yet; see lib/vegas-lines.js.
-    const market = getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr);
+    // ESPN's current line first (it moves through the week), nflverse's as the fallback.
+    const market = withEspnLine(getMarketContext(marketGames, year, week, g.awayAbbr, g.homeAbbr), g.espnOdds, g.homeAbbr, g.awayAbbr);
     const homeQb = starters.get(`${g.id || g.gameId}|home`) || { name: market.homeQbName }, awayQb = starters.get(`${g.id || g.gameId}|away`) || { name: market.awayQbName };
     const homeQbStatus = playerSeasonRows ? qbStatus(homeQb.name, playerSeasonRows, toNflverseAbbr(g.homeAbbr)) : 'unknown';
     const awayQbStatus = playerSeasonRows ? qbStatus(awayQb.name, playerSeasonRows, toNflverseAbbr(g.awayAbbr)) : 'unknown';

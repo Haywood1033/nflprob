@@ -69,3 +69,27 @@ test('anytime TD with no stat line is a void, kept out of the hit rate', () => {
   assert.equal(s.anytimeTd.n, 1);
   assert.equal(s.anytimeTd.hitRate, 100);
 });
+
+const { parseEspnLine, withEspnLine } = require('../lib/vegas-lines.js');
+
+test('ESPN line: "HOU -4.5" with HOU away → home spread +4.5; moneylines and total kept', () => {
+  const l = parseEspnLine({ details: 'HOU -4.5', overUnder: 39.5, homeMoneyline: 180, awayMoneyline: -218 }, 'CLE', 'HOU');
+  assert.deepEqual([l.homeSpread, l.totalLine, l.homeMoneyline, l.awayMoneyline], [4.5, 39.5, 180, -218]);
+  assert.equal(parseEspnLine({ details: 'CLE -3' }, 'CLE', 'HOU').homeSpread, -3);
+  assert.equal(parseEspnLine({ details: 'EVEN', overUnder: 41 }, 'CLE', 'HOU').homeSpread, 0);
+  assert.equal(parseEspnLine({ details: 'XYZ -3' }, 'CLE', 'HOU'), null);
+  assert.equal(parseEspnLine(null, 'CLE', 'HOU'), null);
+});
+
+test('ESPN line replaces nflverse where present; nflverse stays the fallback', () => {
+  const nflverse = { available: true, spreadLine: -3, homeSpread: 3, awaySpread: -3, totalLine: 41, homeRestDays: 7, roof: 'outdoors' };
+  const m = withEspnLine(nflverse, { details: 'HOU -4.5', overUnder: 39.5 }, 'CLE', 'HOU');
+  assert.deepEqual([m.homeSpread, m.spreadLine, m.totalLine, m.lineSource, m.homeRestDays], [4.5, -4.5, 39.5, 'ESPN', 7]);
+  assert.equal(m.keyNumber.nearestKeyNumber, 4);
+  assert.equal(marketEdge({ diff: -7.1, total: 44.5 }, m).homeMarginEdge, -2.6);
+  assert.equal(marketEdge({ diff: -7.1, total: 44.5 }, m).totalEdge, 5);
+  const fb = withEspnLine(nflverse, null, 'CLE', 'HOU');
+  assert.deepEqual([fb.homeSpread, fb.totalLine, fb.lineSource], [3, 41, 'nflverse']);
+  const onlyTotal = withEspnLine(nflverse, { details: '', overUnder: 43 }, 'CLE', 'HOU');
+  assert.deepEqual([onlyTotal.homeSpread, onlyTotal.totalLine], [3, 43]);
+});
