@@ -407,17 +407,28 @@ const ICONS = {
   target:  '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>',
 };
 function icon(name, style) { return `<span class="icon"${style?` style="${style}"`:''}>${ICONS[name]||''}</span>`; }
-// Server-computed badges still return an emoji-prefixed label (e.g. "🏆 Elite Play") — these
-// two helpers translate that into an icon + clean text on the client without needing to
-// change the API contract every badge-rendering call site relies on.
+// Badge tiers by how many signals fire. The keys (Elite / All-Star / Value) are internal and
+// match saved weeks; TIER_NAMES is what the page says. badgeTier() reads a badge object, its
+// label, or an older saved label ("🏆 Elite Play").
+const TIER_NAMES = { Elite: 'Top Signals', 'All-Star': 'High Signals', Value: 'Solid Signals' };
+function badgeTier(b) {
+  const l = typeof b === 'string' ? b : (b?.tier || b?.label || '');
+  if (/Elite|Top Signals/.test(l)) return 'Elite';
+  if (/All-Star|High Signals/.test(l)) return 'All-Star';
+  if (/Value|Solid Signals/.test(l)) return 'Value';
+  return null;
+}
+function tierName(b) { const t = badgeTier(b); return t ? TIER_NAMES[t] : (typeof b === 'string' ? b : ''); }
+// Server-computed badges return an emoji-prefixed label (e.g. "🏆 Top Signals"); these two
+// helpers turn that into an icon + clean text.
 function badgeIcon(label) {
-  if (!label) return '';
-  if (label.includes('Elite')) return icon('trophy', 'color:inherit');
-  if (label.includes('All-Star')) return icon('star', 'color:inherit');
-  if (label.includes('Value')) return icon('bulb', 'color:inherit');
+  const t = badgeTier(label);
+  if (t === 'Elite') return icon('trophy', 'color:inherit');
+  if (t === 'All-Star') return icon('star', 'color:inherit');
+  if (t === 'Value') return icon('bulb', 'color:inherit');
   return '';
 }
-function badgeText(label) { return (label || '').replace(/^\p{Extended_Pictographic}️?\s*/u, ''); }
+function badgeText(label) { return badgeTier(label) ? tierName(label) : (label || '').replace(/^\p{Extended_Pictographic}️?\s*/u, ''); }
 function badgeHTML(badge, cls) {
   if (!badge) return '';
   return `<span class="${cls}" style="display:inline-flex;align-items:center;gap:4px;color:${badge.color};border-color:${badge.color}66">${badgeIcon(badge.label)}${badgeText(badge.label)}</span>`;
@@ -748,13 +759,13 @@ function renderThisWeek(teamData, propsData, allProps) {
       <div class="gs-divider"></div><div class="gs-total"><span class="gs-total-pts" style="color:${tc}">${m.total??'—'}</span><span class="gs-meta">proj total</span></div></div>`;
   }).join('') + '</div>';
   const shootoutCount = games.filter(g=>g.model?.shootoutSignal).length;
-  const eliteCount = players.filter(p=>p.badge?.label.includes('Elite')).length;
+  const eliteCount = players.filter(p=>badgeTier(p.badge)==='Elite').length;
   const signalPlays = players.filter(p=>p.signalCount>=3);
   const kpiHTML = `<div class="today-kpis">
     <div class="today-kpi"><div class="today-kpi-val">${games.length}</div><div class="today-kpi-lbl">Games</div></div>
     <div class="today-kpi"><div class="today-kpi-val">${shootoutCount}</div><div class="today-kpi-lbl">Shootouts</div></div>
     <div class="today-kpi"><div class="today-kpi-val">${signalPlays.length}</div><div class="today-kpi-lbl">Signal Plays</div></div>
-    <div class="today-kpi"><div class="today-kpi-val" style="color:var(--teal)">${eliteCount}</div><div class="today-kpi-lbl">Elite Plays</div></div></div>`;
+    <div class="today-kpi"><div class="today-kpi-val" style="color:var(--teal)">${eliteCount}</div><div class="today-kpi-lbl">Top Signals</div></div></div>`;
   // Best Play This Week — the single highest composite pick across ALL prop types, same sort
   // as Best Plays (tier, then signal count, then relative value) but NOT gated by badge tier:
   // on a week with no Elite/All-Star play at all, this still surfaces the best available thing,
@@ -774,7 +785,7 @@ function renderThisWeek(teamData, propsData, allProps) {
   // not just "cleared enough signals." See isSharpPlay() — most weeks this will legitimately be
   // empty, which is the point (it's a "wait for a better setup" signal, not a guaranteed list).
   const sharpPool = allProps ? buildAllPlaysPool(allProps).filter(isSharpPlay).sort(sortPlays) : [];
-  const sharpCriteria = 'Triple convergence · All-Star+ · favorable matchup required';
+  const sharpCriteria = 'Heavy usage, good matchup and hot streak together · High Signals or better';
   const slateReadText = (() => {
     if (!allProps) return '';
     const totalElite = buildAllPlaysPool(allProps).filter(p => tierWeight(p.badge) === 3).length;
@@ -782,8 +793,8 @@ function renderThisWeek(teamData, propsData, allProps) {
     const parts = [`${games.length}-game slate this week.`];
     if (shootoutCount) parts.push(`${shootoutCount} shootout signal${shootoutCount===1?'':'s'} spotted.`);
     if (lowScoringCt) parts.push(`${lowScoringCt} low-scoring signal${lowScoringCt===1?'':'s'}.`);
-    parts.push(totalElite ? `${totalElite} Elite-tier play${totalElite===1?'':'s'} on the board.` : 'No Elite-tier plays yet.');
-    parts.push(sharpPool.length ? `${sharpPool.length} play${sharpPool.length===1?'':'s'} clear the sharp threshold — these are the convergences worth trusting.` : 'No plays meet the sharp threshold this week — consider waiting for a better setup.');
+    parts.push(totalElite ? `${totalElite} Top Signals play${totalElite===1?'':'s'} on the board.` : 'No Top Signals plays yet.');
+    parts.push(sharpPool.length ? `${sharpPool.length} Three-Signal play${sharpPool.length===1?'':'s'} this week.` : 'No Three-Signal plays this week.');
     return parts.join(' ');
   })();
   const sharpCardHTML = p => `<div class="best-play-card" data-sharp-key="${rowKey(p)+'|'+p.propType}">
@@ -793,11 +804,11 @@ function renderThisWeek(teamData, propsData, allProps) {
       <div class="best-play-sub">${p.team} vs ${p.opponent}</div></div>
       <div style="text-align:right"><div class="best-play-prob">${p.displayValue}</div><div class="gs-meta">${p.typeLabel}</div></div></div></div>`;
   const sharpPlaysHTML = `
-    <div class="today-section-hdr" style="margin-bottom:10px"><span style="display:inline-flex;align-items:center;gap:6px;color:var(--t1);font-size:14px;font-weight:700">${icon('target')} Sharp Plays</span><span>${sharpCriteria}</span></div>
+    <div class="today-section-hdr" style="margin-bottom:10px"><span style="display:inline-flex;align-items:center;gap:6px;color:var(--t1);font-size:14px;font-weight:700">${icon('target')} Three-Signal Plays</span><span>${sharpCriteria}</span></div>
     <div class="today-section" style="margin-bottom:14px"><div class="today-section-hdr"><span>This week’s slate read</span></div><div class="today-section-body" style="font-size:13px;line-height:1.5;color:var(--t1)">${slateReadText}</div></div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><span style="font-weight:700;font-size:13px">The plays</span><span style="font-family:var(--mono);font-size:10px;color:var(--t3)">${sharpPool.length} target${sharpPool.length===1?'':'s'} where everything aligns</span></div>
     ${sharpPool.length ? sharpPool.map(sharpCardHTML).join('')
-      : `<div class="empty" style="padding:24px 4px;margin-bottom:16px"><h3 style="font-size:14px">No plays meet the sharp threshold this week</h3><div style="margin-top:6px;color:var(--t3);font-size:11px;font-family:var(--mono)">${sharpCriteria}</div></div>`}`;
+      : `<div class="empty" style="padding:24px 4px;margin-bottom:16px"><h3 style="font-size:14px">No Three-Signal plays this week</h3><div style="margin-top:6px;color:var(--t3);font-size:11px;font-family:var(--mono)">${sharpCriteria}</div></div>`}`;
   const top5 = [...players].sort((a,b)=>b.prob-a.prob).slice(0,5);
   const top5HTML = top5.map((p,i)=>`<div class="today-target"><div class="today-target-rank">${i+1}</div>
     <div style="flex:1"><div class="today-target-name">${p.name}</div><div class="today-target-sub">${p.team} vs ${p.opponent}</div></div>
@@ -855,7 +866,7 @@ function buildPredictionsSnapshot(teamData, props) {
   const addPlayerProps = (list, propType, valueKey) => {
     (list || []).forEach(p => {
       if (p[valueKey] == null) return;
-      const extra = propType === 'anytime_td' ? { tier: p.badge?.label || null, ci: p.ci?.tier || null } : { floor: p.floor, ceiling: p.ceiling };
+      const extra = propType === 'anytime_td' ? { tier: p.badge?.tier || p.badge?.label || null, ci: p.ci?.tier || null } : { floor: p.floor, ceiling: p.ceiling };
       preds.push({ name: p.name, propType, team: abbrFor(p.team), opponent: abbrFor(p.opponent), prediction: p[valueKey], ...extra });
     });
   };
@@ -1183,7 +1194,7 @@ async function loadBestPlays() {
     renderBestPlays();
   } catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
-function tierWeight(badge) { if (!badge) return 0; if (badge.label.includes('Elite')) return 3; if (badge.label.includes('All-Star')) return 2; if (badge.label.includes('Value')) return 1; return 0; }
+function tierWeight(badge) { return { Elite: 3, 'All-Star': 2, Value: 1 }[badgeTier(badge)] || 0; }
 function sortPlays(a,b) { const tw=tierWeight(b.badge)-tierWeight(a.badge); if (tw!==0) return tw; const sc=b.signalCount-a.signalCount; if (sc!==0) return sc; return b.normalizedValue-a.normalizedValue; }
 // rawValue carries the type's real-world number (TD probability as a percent, yards for the
 // rest) — kept separate from normalizedValue (which is only comparable *within* this unified
@@ -1244,7 +1255,7 @@ function renderBestPlays() {
     <div style="margin-bottom:14px">${signalFilterPillsHTML('best',BEST_PLAYS_ALL_SIGNALS,bestPlaysSignalFilter)}</div>`;
   if (!shown.length) { document.getElementById('content').innerHTML = pillsHTML + '<div class="empty"><h3>No notable plays match this filter</h3></div>'; attachBestPlaysHandlers(); return; }
   const typeClass = {TD:'best-type-td',RUSH:'best-type-rush',REC:'best-type-rec',PASS:'best-type-pass'};
-  const rowClass = badge => badge.label.includes('Elite')?' elite':badge.label.includes('All-Star')?' allstar':'';
+  const rowClass = badge => badgeTier(badge)==='Elite'?' elite':badgeTier(badge)==='All-Star'?' allstar':'';
   const byKey = {};
   const rows = shown.map((p,i) => { const key = rowKey(p)+'|'+p.propType; byKey[key] = p;
     return `<div class="best-row${rowClass(p.badge)}"><div class="best-row-top" data-expand-key="${key}">
@@ -1254,7 +1265,7 @@ function renderBestPlays() {
       <div class="best-value">${p.displayValue}</div><div class="best-badge" style="color:${p.badge.color}">${badgeIcon(p.badge.label)}${badgeText(p.badge.label)}</div></div></div>`;
   }).join('');
   document.getElementById('content').innerHTML = pillsHTML + `<div class="best-list">${rows}</div>
-    <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">Only All-Star and Elite plays show here — a signal-backed, high-sample conviction call, not just anything that cleared the lowest bar. Value Play badges are still visible on each prop's own tab.</div>`;
+    <div class="empty" style="padding:16px 4px;text-align:left;font-size:11px">Only High Signals and Top Signals plays show here. Solid Signals plays are still on each prop's own tab.</div>`;
   document.querySelectorAll('.best-row-top').forEach(row => row.addEventListener('click', () => {
     const p = byKey[row.dataset.expandKey];
     const header = `<div class="dd-name">${p.name}${p.position?` <span style="color:var(--t3);font-weight:400;font-size:13px">(${p.position})</span>`:''}</div><div class="dd-sub">${p.team} vs ${p.opponent}</div>`;
@@ -1366,7 +1377,7 @@ function renderSameGameParlay() {
   const game = parlayGames.find(g => g.gameId === parlaySgpGameId);
   const gameLabel = game ? `${game.awayTeam} @ ${game.homeTeam}` : '';
 
-  if (!legs.length) return pickerHTML + `<div class="empty"><h3>No All-Star/Elite plays in this game yet</h3><div style="margin-top:6px;color:var(--t3);font-size:12px">Try a different game, or check back closer to kickoff as signals firm up.</div></div>`;
+  if (!legs.length) return pickerHTML + `<div class="empty"><h3>No High or Top Signals plays in this game yet</h3><div style="margin-top:6px;color:var(--t3);font-size:12px">Try a different game, or check back closer to kickoff as signals firm up.</div></div>`;
 
   const legsHTML = legs.map((leg,i) => `<div class="parlay-leg" data-sgp-detail="${rowKey(leg)+'|'+leg.propType}" style="cursor:pointer">
     <div class="parlay-leg-num">${i+1}</div>
@@ -1379,7 +1390,7 @@ function renderSameGameParlay() {
   // All-Star/Elite plays in this game yet, same as the Sharp Plays empty state's philosophy —
   // say so rather than silently returning fewer than asked for.
   const shortfallHTML = legs.length < parlaySgpLegCount
-    ? `<div class="empty" style="padding:10px 4px;margin-top:-6px;margin-bottom:14px;text-align:left"><div style="font-size:12px;color:var(--t3)">Only ${legs.length} of the requested ${parlaySgpLegCount} legs cleared the All-Star/Elite bar for this game — showing what's actually there instead of padding the parlay with a weaker play.</div></div>`
+    ? `<div class="empty" style="padding:10px 4px;margin-top:-6px;margin-bottom:14px;text-align:left"><div style="font-size:12px;color:var(--t3)">Only ${legs.length} of the requested ${parlaySgpLegCount} legs reached High Signals or better in this game — showing what's actually there instead of padding the parlay with a weaker play.</div></div>`
     : '';
 
   return pickerHTML + shortfallHTML + `<div class="parlay-card">
@@ -2136,7 +2147,7 @@ function backtestInner() {
     ${['QB', 'RB', 'WR', 'TE'].map(pos => { const x = B.dfs.byPosition[pos], c = x?.calibration; if (!x || !x.n) return ''; const t = c?.check; return `<tr><td class="td-name">${pos}</td><td>${x.n.toLocaleString()}</td><td>${bn(x.mae.model)} / ${bn(x.mae.naive)}</td><td>${t ? bn(t.raw.top.projected) + ` (${t.raw.top.n})` : '—'}</td><td>${t ? bn(t.calibrated.top.projected) : '—'}</td><td style="color:var(--teal)">${t ? bn(t.raw.top.scored) : '—'}</td></tr>`; }).join('')}
     </tbody></table></div><div class="empty" style="padding:8px 16px;text-align:left;font-size:11px">Every QB / RB / WR / TE who played, through the same projector the Showdown and Classic optimizers use (the starting QB only). DST and kickers are plain recent averages and aren’t calibrated.</div></div>` : '';
   const lean = `<div class="today-section"><div class="today-section-hdr"><span>Moneyline lean · favorite won vs model said</span></div><div class="today-section-body">${M.byTier.map(t => `<div class="game-lean-row"><div class="game-lean-teams">${{ strong: 'Strong Lean (65%+)', lean: 'Lean (57-65%)', tossup: 'Toss-up (<57%)' }[t.tier]}</div><div class="game-lean-meta"><span>${t.n} games</span><span>model ${bp(t.predicted)}</span><span style="color:var(--teal)">won ${bp(t.won)}</span></div></div>`).join('')}</div></div>`;
-  const badges = `<div class="today-section"><div class="today-section-hdr"><span>Anytime TD · scored vs model said, by badge</span></div><div class="today-section-body">${B.anytimeTd.byBadge.map(t => `<div class="game-lean-row"><div class="game-lean-teams">${t.badge}</div><div class="game-lean-meta"><span>${t.n.toLocaleString()} player-games</span><span>model ${bp(t.predicted)}</span><span style="color:var(--teal)">scored ${bp(t.actual)}</span></div></div>`).join('')}</div></div>`;
+  const badges = `<div class="today-section"><div class="today-section-hdr"><span>Anytime TD · scored vs model said, by badge</span></div><div class="today-section-body">${B.anytimeTd.byBadge.map(t => `<div class="game-lean-row"><div class="game-lean-teams">${tierName(t.badge)}</div><div class="game-lean-meta"><span>${t.n.toLocaleString()} player-games</span><span>model ${bp(t.predicted)}</span><span style="color:var(--teal)">scored ${bp(t.actual)}</span></div></div>`).join('')}</div></div>`;
   const tdCal = `<div class="today-section"><div class="today-section-hdr"><span>Anytime TD calibration · before calibrating</span><span style="font-weight:400;color:var(--t3)">When the model said x%, how often he scored</span></div><div class="table-scroll"><table class="td-table"><thead><tr><th>Model said</th><th>Player-games</th><th>Avg predicted</th><th>Scored</th></tr></thead><tbody>${(B.anytimeTd.bins || []).filter(x => x.n).map(x => `<tr><td class="td-name">${bp(x.lo)}–${bp(x.hi)}</td><td>${x.n.toLocaleString()}</td><td>${bp(x.predicted)}</td><td>${bp(x.actual)}</td></tr>`).join('')}</tbody></table></div></div>`;
   return head + kpis + calTable + `<div class="today-two-col">${lean}${badges}</div>` + tdCal + dfsTable +
     `<div class="empty" style="padding:6px 4px 16px;text-align:left;font-size:11px">Vegas is the bar to beat on game markets: the model is compared against the closing spread, total and no-vig moneyline. Lineups in the replay use the endpoints’ own fallback pools (who played most recently), since past rosters aren’t available; weather uses game-day conditions.</div>`;
@@ -2171,7 +2182,7 @@ function renderAccuracy(data) {
 
   const badgeRows = ['Elite', 'All-Star', 'Value', 'none'].map(tier => {
     const b = agg.anytimeTd.byBadge[tier];
-    return `<div class="game-lean-row"><div class="game-lean-teams">${tier === 'none' ? 'No Badge' : tier}</div>
+    return `<div class="game-lean-row"><div class="game-lean-teams">${tier === 'none' ? 'No Badge' : TIER_NAMES[tier]}</div>
       <div class="game-lean-meta"><span>${b.n} graded</span><span style="color:var(--teal)">${fmtPct(b.hitRate)} hit rate</span></div></div>`;
   }).join('');
   const confRows = ['high', 'mid', 'low'].map(tier => {

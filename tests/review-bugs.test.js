@@ -93,3 +93,11 @@ test('ESPN line replaces nflverse where present; nflverse stays the fallback', (
   const onlyTotal = withEspnLine(nflverse, { details: '', overUnder: 43 }, 'CLE', 'HOU');
   assert.deepEqual([onlyTotal.homeSpread, onlyTotal.totalLine], [3, 43]);
 });
+
+const { tierOf, TIER_LABEL } = require('../lib/grading.js');
+
+test('badge tiers read both the old and the new names', () => {
+  assert.deepEqual(['🏆 Elite Play', '🏆 Top Signals', '⭐ All-Star Play', '⭐ High Signals', '💡 Value Play', '💡 Solid Signals', null].map(tierOf),
+    ['Elite', 'Elite', 'All-Star', 'All-Star', 'Value', 'Value', 'none']);
+  assert.deepEqual(TIER_LABEL, { Elite: 'Top Signals', 'All-Star': 'High Signals', Value: 'Solid Signals' });
+});
