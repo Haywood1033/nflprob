@@ -1,4 +1,4 @@
-const { attachPropLines } = require('../lib/espn-props.js');
+const { attachPropLines, propLinesReport } = require('../lib/espn-props.js');
 const { fetchWeekSchedule, seasonFromQuery } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
@@ -84,6 +84,14 @@ module.exports = async function handler(req, res) {
   const year = seasonFromQuery(req.query);
   if (!week) return res.status(400).json({ error: 'week query param required, e.g. ?week=1' });
   const cacheKey = `${year}|${week}`;
+
+  // ?view=lines: what ESPN's prop feed returned for this week (checking the parser on live data).
+  // Lives here rather than in its own file: the Hobby plan allows 12 functions per deployment.
+  if (req.query.view === 'lines') {
+    const sched = await fetchWeekSchedule(year, week);
+    if (!sched?.length) return res.status(200).json({ week, year, games: [], error: 'No schedule found' });
+    return res.status(200).json({ week, year, games: await propLinesReport(sched, fetchTeamRoster) });
+  }
 
   const age = cache.timestamp ? Date.now() - cache.timestamp : Infinity;
   if (cache.key === cacheKey && age < CACHE_TTL && cache.data) {

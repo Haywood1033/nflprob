@@ -20,7 +20,7 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
 - DFS: `lib/dfs-projections.js`, `lib/dfs-optimizer.js`, `lib/classic-optimizer.js`.
 - Book lines: `lib/espn-props.js` reads ESPN's pre-game player prop lines (core API propBets,
   keyed by ESPN athlete id, matched through the rosters); `lib/prop-ev.js` prices them against the
-  model (TD EV; yardage over chance from a normal around the projection). `/api/prop-lines?week=N`
+  model (TD EV; yardage over chance from a normal around the projection). `/api/props?week=N&view=lines`
   shows what the feed returned and what the parser skipped. Game lines prefer ESPN's current line,
   nflverse's file as the fallback (`withEspnLine` in `lib/vegas-lines.js`).
 - `docs/golfprob-build-readout.md` used to sit here by mistake; golfprob's notes live in golfprob.
@@ -29,7 +29,7 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
 ## Open items
 
 - Prop lines: the ESPN parser was written without access to the live feed (dev network blocks
-  ESPN). Check `/api/prop-lines` on the live site before trusting it. Yardage EV uses a normal
+  ESPN). Check `/api/props?week=N&view=lines` on the live site before trusting it. Yardage EV uses a normal
   approximation that hasn't been checked on past lines; the weekly snapshot stores each line so the
   Accuracy tab's "Against the book" section can measure it.
 
@@ -52,7 +52,8 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   is fine for this project. A hard refresh (Cmd+Shift+R) may be needed after a deploy.
 - **Secrets:** the database URL and any keys live in Vercel's environment variables. Refer to
   variable names only; never put values in code, commits or messages.
-- **Stack:** Vercel serverless functions in `api/` (one file per route, `_util.js` shared), model
+- **Stack:** Vercel serverless functions in `api/` (one file per route; the Hobby plan caps a
+  deployment at 12 functions and there are 12, so a new route must fold into an existing file), model
   and data code in `lib/`, the whole frontend in one `app.html` (vanilla JS, no framework), optional
   Postgres via `lib/db.js` (`DATABASE_URL`, `POSTGRES_URL` or the Prisma/Supabase variants).
 
