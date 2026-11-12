@@ -96,3 +96,16 @@ test('grading against the book: model vs line miss, +EV bets in units', () => {
   assert.deepEqual(s.rushYds.evBets, { n: 2, won: 1, units: -0.13, roi: -6.5 });
   assert.deepEqual(s.anytimeTd.evBets, { n: 1, won: 1, units: 1.2, roi: 120 });
 });
+
+test('anytime TD under its other names and price shapes', () => {
+  const names = ['Anytime Touchdown Scorer', 'Anytime TD Scorer', 'To Score a Touchdown', 'Player to Score a TD', 'Touchdown Scorer', 'Touchdowns', 'Total Touchdowns',
+    'First Touchdown Scorer', 'Last Touchdown Scorer', '2+ Touchdowns', 'Total Passing Touchdowns', 'Rushing Touchdowns', 'Team Total Touchdowns'];
+  assert.deepEqual(names.map(marketOf), ['anytime_td', 'anytime_td', 'anytime_td', 'anytime_td', 'anytime_td', 'anytime_td', 'anytime_td', null, null, null, null, null, null]);
+  const it = (type, extra) => ({ athlete: ath(5), type: { name: type }, ...extra });
+  assert.equal(parsePropItem(it('Anytime Touchdown Scorer', { odds: { american: '+175' } })).price, 175);
+  assert.equal(parsePropItem(it('Anytime Touchdown Scorer', { current: { yes: { american: '-120' } } })).price, -120);
+  assert.equal(parsePropItem(it('Anytime Touchdown Scorer', { odds: { moneyLine: 140 } })).price, 140);
+  assert.equal(parsePropItem(it('Anytime Touchdown Scorer', { current: { over: { value: 2.5 } } })).price, 150);
+  assert.equal(parsePropItem(it('Total Touchdowns', { current: { target: { value: 0.5 }, over: { american: '+130' }, under: { american: '-160' } } })).price, 130);
+  assert.equal(parsePropItem(it('Total Touchdowns', { current: { target: { value: 1.5 }, over: { american: '+400' } } })).skip, 'market');
+});
