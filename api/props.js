@@ -58,7 +58,7 @@ function tdPoolFromRoster(roster, playerRows, count = 8, throughWeek = -1) {
   if (!roster || Object.keys(roster).length === 0) return null;
   const candidates = Object.values(roster).filter(entry => TD_POSITIONS.includes(entry.position) && !entry.definitelyOut);
 
-  const { findHistoricalTeam, statsName } = require('../lib/roster-pool.js');
+  const { findHistoricalTeam, statsName, rankTdPool } = require('../lib/roster-pool.js');
   const lastN = recencyWindow(throughWeek);
   const withVolume = candidates.map(entry => {
     const name = statsName(playerRows, entry.displayName, entry.position); // ESPN "James Cook III" = nflverse "James Cook"
@@ -74,7 +74,8 @@ function tdPoolFromRoster(roster, playerRows, count = 8, throughWeek = -1) {
   // Who played most recently wins first — see lib/roster-pool.js's poolFromRoster for the full
   // reasoning (a role change mid-window otherwise lets the old starter's bigger multi-game
   // total keep outranking the new starter's single more-recent game).
-  return withVolume.sort((a, b) => b.lastWeekPlayed - a.lastWeekPlayed || b.volume - a.volume).slice(0, count);
+  // The team's top-volume players are kept even if they missed the latest game (rankTdPool).
+  return rankTdPool(withVolume, count);
 }
 
 module.exports = async function handler(req, res) {

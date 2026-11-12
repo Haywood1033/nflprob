@@ -54,3 +54,16 @@ test('projected receptions: targets × catch rate pulled toward the position rat
   assert.equal(blendVolume(8, 4), 5);          // 25% model, 75% recent average
   assert.equal(blendVolume(null, 4.04), 4);
 });
+
+// A lead back who missed last week must stay in the anytime TD pool.
+test('TD pool keeps a top-volume player who missed the latest game', () => {
+  const { rankTdPool } = require('../lib/roster-pool.js');
+  const played = Array.from({ length: 11 }, (_, i) => ({ name: 'P' + i, volume: 30 - i * 3, lastWeekPlayed: 9 }));
+  const leadBack = { name: 'Lead Back', volume: 70, lastWeekPlayed: 8 };
+  const benched = { name: 'Deep Bench', volume: 2, lastWeekPlayed: 7 };
+  const pool = rankTdPool([...played, leadBack, benched], 9);
+  assert.ok(pool.includes(leadBack));
+  assert.ok(!pool.includes(benched));
+  assert.equal(pool.length, 10);
+  assert.deepEqual(pool.slice(0, 9).map(p => p.name), played.slice(0, 9).map(p => p.name));
+});
