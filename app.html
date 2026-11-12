@@ -2391,13 +2391,33 @@ async function initApp() {
   loadThisWeek();
 }
 initApp();
-// scroll-debug.js runs on every visit. On the owner's phone (Chrome, WebKit) the page kept ending
-// up drawn ~103px down after scrolling, through every layout change tried; with this script
-// running (it was a diagnostic, ?debug=scroll) it scrolled correctly, same code otherwise. So it
-// always runs, its panel drawn at 1% opacity (invisible, but still painted every frame); with
-// ?debug=scroll the panel is visible. Don't remove it without testing on the owner's phone.
-window.__scrollDebugVisible = params.get('debug') === 'scroll';
-{ const sd = document.createElement('script'); sd.src = '/scroll-debug.js'; document.body.appendChild(sd); }
+// FINISH THE SCROLL TO THE TOP (touch screens). Measured on the owner's phone (Chrome, landscape,
+// ?debug=scroll): scrolling up, Chrome's toolbar slides back in (window height 603 → 547) and the
+// browser shifts the page down to compensate (scrollY 88 → 122), so it comes to rest just short of
+// the top with the first row under the pinned header. When the user has scrolled up, let go, and
+// the page settles within 140px of the top right after the toolbar grew, finish the trip to 0.
+(function () {
+  if (!matchMedia('(hover:none),(pointer:coarse)').matches) return;
+  let touching = false, fingerY = null, userScrolledUp = false, lastShrink = -Infinity, lastH = innerHeight, timer = null;
+  const settle = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const y = window.scrollY;
+      if (!touching && userScrolledUp && y > 0 && y <= 140 && performance.now() - lastShrink < 2500) window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 250);
+  };
+  addEventListener('touchstart', e => { touching = true; fingerY = e.touches[0]?.clientY ?? null; }, { passive: true });
+  addEventListener('touchmove', e => {
+    const y = e.touches[0]?.clientY;
+    if (y != null && fingerY != null && Math.abs(y - fingerY) > 4) { userScrolledUp = y > fingerY; fingerY = y; } // finger moving down = scrolling up
+  }, { passive: true });
+  addEventListener('touchend', () => { touching = false; settle(); }, { passive: true });
+  addEventListener('touchcancel', () => { touching = false; }, { passive: true });
+  addEventListener('resize', () => { if (innerHeight < lastH) lastShrink = performance.now(); lastH = innerHeight; settle(); });
+  addEventListener('scroll', settle, { passive: true });
+})();
+// ?debug=scroll loads a scroll diagnostic panel (scroll-debug.js); never loaded otherwise.
+if (params.get('debug') === 'scroll') { const sd = document.createElement('script'); sd.src = '/scroll-debug.js'; document.body.appendChild(sd); }
 
 // WORKAROUND for a real, observed Mobile Safari bug: rotating to landscape, the browser
 // sometimes computes %/calc()-based widths (the --gutter/.wrap rules above) against the

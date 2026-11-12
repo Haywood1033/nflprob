@@ -1,13 +1,9 @@
 // scroll-debug.js — a small panel showing the scroll position and a log of every scroll change made
 // with no finger on the screen, plus what happened just before it (viewport resizes, the content
-// area being replaced, class changes). Runs on every app visit (see app.html for why); the panel is
-// visible only with ?debug=scroll and on the bare /scrolltest.html page.
+// area being replaced, class changes). Loaded only with ?debug=scroll, and on the bare /scrolltest.html page.
 (function () {
   const panel = document.createElement('div');
   panel.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:99999;max-width:min(96vw,520px);background:rgba(0,0,0,.88);color:#7fffd4;font:11px/1.35 ui-monospace,Menlo,monospace;padding:6px 8px;border:1px solid #2dd4bf;border-radius:6px;white-space:pre-wrap;pointer-events:none';
-  // Visible with ?debug=scroll (or on the bare test page); otherwise painted at 1% opacity, which
-  // is invisible but still drawn every frame (fully transparent elements aren't drawn at all).
-  if (window.__scrollDebugVisible === false) panel.style.opacity = '0.01';
   document.body.appendChild(panel);
 
   const log = [];

@@ -68,10 +68,12 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   With `/?debug=scroll` (scroll-debug.js) the owner's phone scrolled correctly, as did the bare
   `/scrolltest.html`; the plain address had likely been showing an older copy, so the app page is
   now served `Cache-Control: no-store` (vercel.json). The diagnostic stays for future checks.
-  That wasn't it: the plain address still broke, the debug address didn't, same code. A
-  lookalike keep-alive (hidden element updated per frame) didn't fix it either. So scroll-debug.js
-  now runs on every visit, exactly as in the test that worked, its panel at 1% opacity (visible
-  with ?debug=scroll). Don't remove it without testing on the owner's phone.
+  The cause, measured with the ?debug=scroll panel on the owner's phone (Chrome, landscape): when
+  scrolling up, Chrome's toolbar slides back in (window height 603 → 547) and the browser shifts the
+  page down to compensate (scrollY 88 → 122), so it rests just short of the top with the first row
+  under the pinned header. Fix: the FINISH THE SCROLL TO THE TOP block in app.html (touch screens:
+  after an upward scroll that settles within 140px of the top right after the toolbar grew, scroll
+  to 0). Earlier changes above didn't address this; they're harmless and left in.
 - **Secrets:** the database URL and any keys live in Vercel's environment variables. Refer to
   variable names only; never put values in code, commits or messages.
 - **Stack:** Vercel serverless functions in `api/` (one file per route; the Hobby plan caps a
