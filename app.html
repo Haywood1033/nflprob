@@ -297,6 +297,14 @@ body{font-variant-numeric:tabular-nums;background:var(--bg)}
   .wrap{max-width:1600px}
   .hdr,.tabs{padding-left:max(16px,calc((100% - 1600px) / 2 + 16px));padding-right:max(16px,calc((100% - 1600px) / 2 + 16px))}
 }
+/* Touch screens (phones, tablets): the header and tab bar are pinned with position:fixed, and the
+   page reserves their height (56px header + 47px tab bar) at the top. Pinned with position:sticky
+   (as on desktop), Chrome on iPad left the page's top hidden under them; unpinned, it didn't. */
+@media (hover:none),(pointer:coarse){
+  .hdr{position:fixed;top:0;left:0;right:0;z-index:100}
+  .tabs{position:fixed;top:56px;left:0;right:0;z-index:90}
+  body{padding-top:103px}
+}
 /* See _forceLayoutReflow: an invisible 0.001px nudge that makes Safari recompute these after a rotation. */
 html.rf{--gutter:max(24.001px,calc((100% - 1240px) / 2 + 24.001px))}
 html.rf .wrap,html.rf .hdr,html.rf .tabs{min-width:0.001px}

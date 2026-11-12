@@ -61,6 +61,10 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   `overflow-anchor:none` on html/body: a screen recording on iPad Chrome (Nov 12) showed the page
   reach the top and then slide back down by the header's height on its own. Switching tabs scrolls
   to the top.
+  Touch screens pin the header and tab bar with `position:fixed` and reserve 103px at the top of
+  the body; desktop keeps `position:sticky`. Evidence: on iPad Chrome every sticky version hid the
+  page top under the bar, and the one unpinned version didn't. If the header or tab bar height
+  changes, update the 103px (and the tab bar's `top:56px`).
 - **Secrets:** the database URL and any keys live in Vercel's environment variables. Refer to
   variable names only; never put values in code, commits or messages.
 - **Stack:** Vercel serverless functions in `api/` (one file per route; the Hobby plan caps a
