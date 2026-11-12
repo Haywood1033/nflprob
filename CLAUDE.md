@@ -65,6 +65,9 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   the body; desktop keeps `position:sticky`. Evidence: on iPad Chrome every sticky version hid the
   page top under the bar, and the one unpinned version didn't. If the header or tab bar height
   changes, update the 103px (and the tab bar's `top:56px`).
+  With `/?debug=scroll` (scroll-debug.js) the owner's phone scrolled correctly, as did the bare
+  `/scrolltest.html`; the plain address had likely been showing an older copy, so the app page is
+  now served `Cache-Control: no-store` (vercel.json). The diagnostic stays for future checks.
 - **Secrets:** the database URL and any keys live in Vercel's environment variables. Refer to
   variable names only; never put values in code, commits or messages.
 - **Stack:** Vercel serverless functions in `api/` (one file per route; the Hobby plan caps a
