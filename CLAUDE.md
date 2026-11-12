@@ -28,10 +28,11 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
 
 ## Open items
 
-- Prop lines: the ESPN parser was written without access to the live feed (dev network blocks
-  ESPN). Check `/api/props?week=N&view=lines` on the live site before trusting it. Yardage EV uses a normal
-  approximation that hasn't been checked on past lines; the weekly snapshot stores each line so the
-  Accuracy tab's "Against the book" section can measure it.
+- Prop lines: checked on the live feed (Nov 2026). ESPN's propBets (DraftKings) give the line and
+  opening line only, no prices; anytime TD items are empty. So yardage shows the book line and the
+  model's gap to it, but there is no EV and no anytime TD line. Real EV needs a priced source
+  (e.g. a paid odds API with a key); not decided. The weekly snapshot stores each line so the
+  Accuracy tab's "Against the book" section measures model miss vs book miss.
 
 - The QB fix relies on ESPN's injury report; if ESPN lags, the app can name an injured starter.
 - DFS projects QB rushing and RB receiving from plain recent averages (the props tabs use the

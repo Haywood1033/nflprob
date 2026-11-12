@@ -45,7 +45,7 @@ test('market names: the main markets only, not longest / combos / quarters', () 
 
 test('parse items; the main line is the two-sided one closest to even', () => {
   assert.deepEqual(parsePropItem(yards(4241457, 'Total Rushing Yards', 62.5, '-115', '-105')),
-    { athleteId: '4241457', market: 'rush_yds', typeName: 'Total Rushing Yards', line: 62.5, overPrice: -115, underPrice: -105, price: null });
+    { athleteId: '4241457', market: 'rush_yds', typeName: 'Total Rushing Yards', line: 62.5, openLine: null, overPrice: -115, underPrice: -105, price: null });
   assert.equal(parsePropItem(anytime(4241457, '+140')).price, 140);
   // Older shape: line and prices under odds.
   const old = { athlete: ath(7), type: { name: 'Total Receiving Yards' }, odds: { total: { value: '48.5' }, over: { american: '-110' }, under: { american: '-110' } } };
@@ -108,4 +108,21 @@ test('anytime TD under its other names and price shapes', () => {
   assert.equal(parsePropItem(it('Anytime Touchdown Scorer', { current: { over: { value: 2.5 } } })).price, 150);
   assert.equal(parsePropItem(it('Total Touchdowns', { current: { target: { value: 0.5 }, over: { american: '+130' }, under: { american: '-160' } } })).price, 130);
   assert.equal(parsePropItem(it('Total Touchdowns', { current: { target: { value: 1.5 }, over: { american: '+400' } } })).skip, 'market');
+});
+
+// Items exactly as ESPN's live feed sends them (Nov 2026): the line only, no prices.
+test('live ESPN shape: line and opening line, no prices; anytime TD empty', () => {
+  const live = { athlete: ath(4426348), type: { id: '8', name: 'Total Passing Yards (incl. overtime)' }, lastUpdated: '2026-11-12T18:08Z', current: { target: { value: 201.5, displayValue: '201.5' } }, open: { target: { value: 212.5, displayValue: '212.5' } } };
+  assert.deepEqual(parsePropItem(live), { athleteId: '4426348', market: 'pass_yds', typeName: 'Total Passing Yards (incl. overtime)', line: 201.5, openLine: 212.5, overPrice: null, underPrice: null, price: null });
+  const td = { athlete: ath(2531358), type: { id: '31', name: 'Anytime Touchdown Scorer' }, current: {}, open: {} };
+  assert.equal(parsePropItem(td).skip, 'no price');
+  assert.equal(marketOf('Total Receiving Yards (incl. overtime)'), 'rec_yds');
+  assert.equal(marketOf('Total Passing Touchdowns (incl. overtime)'), null);
+  assert.equal(marketOf('1st Half Touchdown Scorer'), null);
+  // Several unpriced lines for one player → the middle one.
+  const many = [40.5, 52.5, 64.5].map(v => parsePropItem({ ...live, type: { name: 'Total Rushing Yards' }, current: { target: { value: v } } }));
+  assert.equal(mainLines(many)[0].line, 52.5);
+  // Priced against the model with no odds: the gap and far-off flag, no EV.
+  const r = priceYards({ projected: 250, floor: 210, ceiling: 290 }, { line: 201.5 });
+  assert.deepEqual([r.diff, r.farOff, r.ev, r.side, r.overPrice], [48.5, true, null, null, null]);
 });

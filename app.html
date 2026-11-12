@@ -1094,13 +1094,19 @@ function bookLineSection(p, market) {
   const l = p.line;
   if (!l) return '';
   const book = l.book ? ` (${ppEsc(l.book)})` : '';
+  const priced = market === 'td' ? l.price != null : (l.overPrice != null || l.underPrice != null);
+  const moved = l.openLine != null && l.openLine !== l.line ? `${l.openLine} → ${l.line}` : null;
   const tiles = market === 'td'
     ? [['Book odds', fmtOdds(l.price)], ['Book chance', l.bookProb + '%'], ['Model chance', p.prob + '%'], ['Expected value', evText(l.ev)]]
     : [['Book line', l.line], ['Model projection', p.projected], ['Gap', (l.diff > 0 ? '+' : '') + l.diff + ' yds'],
-       ['Over / under odds', `${fmtOdds(l.overPrice)} / ${fmtOdds(l.underPrice)}`], ['Model: over', l.modelOver + '%'], ['Book: over', l.bookOver != null ? l.bookOver + '%' : '—']];
+       ...(moved ? [['Line moved', moved]] : l.openLine != null ? [['Opened', l.openLine]] : []),
+       ...(priced ? [['Over / under odds', `${fmtOdds(l.overPrice)} / ${fmtOdds(l.underPrice)}`], ['Model: over', l.modelOver + '%'], ['Book: over', l.bookOver != null ? l.bookOver + '%' : '—']] : [])];
+  const gapNote = market !== 'td' && l.farOff ? `The model is ${Math.abs(l.diff)} yds ${l.diff > 0 ? 'above' : 'below'} the book, a big gap: check for news the model can't see. ` : '';
   const note = market === 'td'
     ? (l.ev > 0 ? `At ${fmtOdds(l.price)} the model sees a ${l.ev}% return per bet over the long run.` : 'At this price the model sees no edge.')
-    : `${l.farOff ? `The model is ${Math.abs(l.diff)} yds ${l.diff > 0 ? 'above' : 'below'} the book, a big gap: check for news the model can't see. ` : ''}${l.ev > 0 ? `Best side: ${l.side} ${l.line}, ${l.ev}% expected return.` : 'Neither side shows an edge at these odds.'} The over chance assumes a bell-shaped spread around the projection, so treat it as a rough guide.`;
+    : priced
+      ? `${gapNote}${l.ev > 0 ? `Best side: ${l.side} ${l.line}, ${l.ev}% expected return.` : 'Neither side shows an edge at these odds.'} The over chance assumes a bell-shaped spread around the projection, so treat it as a rough guide.`
+      : `${gapNote}${!gapNote ? `The model is ${Math.abs(l.diff)} yds ${l.diff >= 0 ? 'above' : 'below'} the book's line. ` : ''}The book's odds aren't available, only the line.`;
   return `<div class="pp-section"><div class="pp-t">Against the book${book}</div>
     <div class="pp-kv">${tiles.map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>
     <div class="pp-note">${note}</div></div>`;
@@ -1114,6 +1120,7 @@ function renderTdProps(d) {
   const allPlayers = d.players || [];
   if (!allPlayers.length) { document.getElementById('content').innerHTML = '<div class="empty"><h3>No player props found</h3></div>'; return; }
   const {matchup,position,signal} = filterState.td; const players = filterPlayers(allPlayers, matchup, position, signal);
+  const hasOdds = allPlayers.some(p => p.line); // book odds columns only when there are any
   const filterBarHTML = `<div class="filter-bar">${renderMatchupSelect('td',allPlayers)}${renderPositionPills('td',['QB','RB','WR','TE'])}<span class="filter-count">${players.length} of ${allPlayers.length} players</span></div>
     <div style="margin-bottom:14px">${signalFilterPillsHTML('td',TAB_SIGNALS.td,signal)}</div>`;
   const byKey = {};
@@ -1122,12 +1129,12 @@ function renderTdProps(d) {
     const key = rowKey(p); byKey[key] = p;
     const unmodeledFlag = p.unmodeledTeammates?.length ? ` <span style="color:var(--amber)" title="${p.unmodeledTeammates.join(', ')} is active on the roster with no recorded usage this season — this projection doesn't account for them">⚠</span>` : '';
     return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}${unmodeledFlag}</td>
-      <td class="td-pos">${p.position}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.prob}%</td>${tdLineCells(p)}
+      <td class="td-pos">${p.position}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.prob}%</td>${hasOdds ? tdLineCells(p) : ''}
       <td class="td-touch">${p.touches}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
   }).join('');
   document.getElementById('content').innerHTML = filterBarHTML + `<div class="table-scroll"><table class="td-table">
-    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Anytime TD%</th><th class="num-col">Book Odds</th><th class="num-col">EV</th><th class="num-col">Touches (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
-    <tbody>${rows||'<tr><td colspan="9" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
+    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Anytime TD%</th>${hasOdds ? '<th class="num-col">Book Odds</th><th class="num-col">EV</th>' : ''}<th class="num-col">Touches (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="${hasOdds ? 9 : 7}" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
   document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => { const p = byKey[row.dataset.expandKey]; openDrawer(playerDrawerHeader(p), tdDrawerBody(p)); }));
   attachSignalFilterHandlers('td', label => { filterState.td.signal = label; renderTdProps(d); });
   attachFilterHandlers('td', renderTdProps);
