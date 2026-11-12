@@ -19,15 +19,8 @@
    hover/emphasis, instead of a different tint per card. */
 :root{--bg:#0a0e1a;--bg2:#10162a;--bg3:#151d34;--bg4:#1c2541;--bd:#232d47;--bd2:#33405f;--t1:#e9edf5;--t2:#b0b9cc;--t3:#8690a8;--teal:#2dd4bf;--green:#4ade80;--amber:#fbbf24;--red:#f87171;--purple:#a78bfa;--blue:#60a5fa;--mono:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;--sans:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;--r:10px;--r-sm:6px;--gutter:max(24px,calc((100% - 1240px) / 2 + 24px))}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px;line-height:1.45;min-height:100vh;overflow-x:hidden;overflow-x:clip;-webkit-font-smoothing:antialiased}
-/* Header and tab bar are pinned together as one block (.topbar). No blur behind it: a pinned
-   element with backdrop-filter stops repainting on iPhone (Safari and Chrome both use WebKit) and
-   leaves a frozen strip at the top of the screen. */
-.topbar{position:sticky;top:0;z-index:100;background:var(--bg)}
-/* Touch screens (phones, tablets): only the tab bar stays pinned; the logo row scrolls away.
-   The whole bar pinned covered a large share of a landscape tablet screen. */
-@media (hover:none),(pointer:coarse){.topbar{display:contents}.tabs{position:sticky;top:0;z-index:100}}
-.hdr{display:flex;align-items:center;gap:12px;padding:14px 22px;border-bottom:1px solid var(--bd);background:var(--bg)}
+body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px;line-height:1.45;min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+.hdr{display:flex;align-items:center;gap:12px;padding:14px 22px;border-bottom:1px solid var(--bd);background:var(--bg);position:sticky;top:0;z-index:100}
 .logo{font-family:var(--sans);font-size:15px;font-weight:700;color:var(--t1)}
 .hdr-week{font-family:var(--sans);font-size:12px;font-weight:600;color:var(--t2);background:rgba(255,255,255,0.05);border:1px solid var(--bd2);padding:4px 11px;border-radius:20px}
 .status{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--t3);margin-left:auto}
@@ -275,12 +268,12 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
    1px borders, nothing under 11px, sentence-case labels, flat surfaces, underline tabs, a
    centered 1240px page, and numbers in ink (the accent marks state, not data). */
 body{font-variant-numeric:tabular-nums;background:var(--bg)}
-.hdr{height:56px;padding:0 var(--gutter);background:var(--bg);border-bottom:1px solid var(--bd);gap:14px}
+.hdr{height:56px;padding:0 var(--gutter);background:rgba(10,14,26,.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--bd);gap:14px}
 .logo{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;letter-spacing:-.01em;text-transform:lowercase}
 .logo::before{content:'';width:20px;height:20px;background:no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cellipse cx='12' cy='12' rx='8' ry='5.5' fill='none' stroke='%232dd4bf' stroke-width='2'/%3E%3Cpath d='M6.5 12h11M9.5 9.6v4.8M12 9v6M14.5 9.6v4.8' stroke='%232dd4bf' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E")}
 .hdr-week{font-size:12px;font-weight:600;color:var(--t2);background:var(--bg2);border:1px solid var(--bd2);padding:0 10px;height:26px;display:inline-flex;align-items:center;border-radius:999px}
 .status{font-size:12px;color:var(--t3)}
-.tabs{gap:4px;padding:0 var(--gutter);background:var(--bg);border-bottom:1px solid var(--bd);scrollbar-width:none}
+.tabs{position:sticky;top:56px;z-index:90;gap:4px;padding:0 var(--gutter);background:var(--bg);border-bottom:1px solid var(--bd);scrollbar-width:none}
 .tabs::-webkit-scrollbar{display:none}
 .tab{position:relative;height:46px;display:flex;align-items:center;padding:0 14px;border:0;border-radius:0;background:none;color:var(--t3);font-size:14px;font-weight:600}
 .tab:first-child{margin-left:-14px}
@@ -377,7 +370,6 @@ html.rf .wrap,html.rf .hdr,html.rf .tabs{min-width:0.001px}
 </style>
 </head>
 <body>
-  <div class="topbar">
   <div class="hdr">
     <div class="logo">NFLPROB</div>
     <div class="hdr-week" id="weekLabel">Week —</div>
@@ -395,7 +387,6 @@ html.rf .wrap,html.rf .hdr,html.rf .tabs{min-width:0.001px}
     <div class="tab" data-tab="dfs">Lineup Builder</div>
     <div class="tab" data-tab="season">Season Projections</div>
     <div class="tab" data-tab="accuracy">Accuracy</div>
-  </div>
   </div>
   <div class="wrap" id="content"><div class="loading-state"><div class="spinner"></div><div>Loading this week's slate…</div></div></div>
 <script>
@@ -2384,10 +2375,10 @@ initApp();
 // viewport size from BEFORE the rotation, and doesn't recalculate until something else forces
 // a reflow (switching tabs fixed it, with no CSS change). Flipping the html.rf class nudges
 // --gutter and .wrap by 0.001px, which makes the browser recompute them against the new width.
-// It never hides the page: hiding it (the old approach) dropped the scroll position mid-gesture
-// and left the top of the page stuck half off-screen. It runs once the rotation has settled.
-// body uses overflow-x:clip, not hidden: hidden on the body makes iPhone Safari's sticky header
-// and scroll-to-top misbehave.
+// It never hides the page and never runs on a plain resize: the first version of this fix
+// (Nov 3) hid and redrew the whole page on every resize, and phones and tablets resize the page
+// whenever the address bar slides in or out during a scroll, so scrolling broke. It runs once
+// the rotation has settled.
 let _reflowTimer = null;
 function _forceLayoutReflow() {
   clearTimeout(_reflowTimer);

@@ -50,6 +50,10 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   `app.html`, extract its `<script>` block and run `node --check` on it.
 - **Deploy:** Vercel deploys `main` automatically; there's no build step. Pushing straight to `main`
   is fine for this project. A hard refresh (Cmd+Shift+R) may be needed after a deploy.
+- **Mobile scrolling:** never run layout code on `resize`: phones and tablets resize the page
+  whenever the address bar slides during a scroll. A Nov 3 rotation fix that hid and redrew the
+  page on every resize broke scrolling until Nov 12; the rotation fix now runs on orientation
+  changes only and never hides the page. The pinned header and tab bar are as they were before.
 - **Secrets:** the database URL and any keys live in Vercel's environment variables. Refer to
   variable names only; never put values in code, commits or messages.
 - **Stack:** Vercel serverless functions in `api/` (one file per route; the Hobby plan caps a
