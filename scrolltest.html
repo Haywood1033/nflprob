@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scroll test</title>
+<style>
+  /* Control page for the scroll diagnostic: a pinned bar and plain rows, nothing else. */
+  body{margin:0;background:#0a0e1a;color:#e9edf5;font:15px system-ui,-apple-system,sans-serif}
+  .bar{position:sticky;top:0;height:56px;display:flex;align-items:center;padding:0 16px;background:#10162a;border-bottom:1px solid #33405f;font-weight:700}
+  .row{padding:14px 16px;border-bottom:1px solid #232d47}
+  #content{padding:16px 0}
+</style></head>
+<body>
+  <div class="bar">Scroll test: pinned bar, plain rows</div>
+  <div id="content"></div>
+  <script>
+    document.getElementById('content').innerHTML = Array.from({ length: 150 }, (_, i) => `<div class="row">Row ${i + 1}</div>`).join('');
+  </script>
+  <script src="/scroll-debug.js"></script>
+</body></html>

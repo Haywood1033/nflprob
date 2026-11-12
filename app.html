@@ -2391,6 +2391,8 @@ async function initApp() {
   loadThisWeek();
 }
 initApp();
+// ?debug=scroll loads a scroll diagnostic panel (scroll-debug.js); never loaded otherwise.
+if (params.get('debug') === 'scroll') { const sd = document.createElement('script'); sd.src = '/scroll-debug.js'; document.body.appendChild(sd); }
 
 // WORKAROUND for a real, observed Mobile Safari bug: rotating to landscape, the browser
 // sometimes computes %/calc()-based widths (the --gutter/.wrap rules above) against the
