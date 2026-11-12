@@ -1,3 +1,4 @@
+const { attachPropLines } = require('../lib/espn-props.js');
 const { fetchWeekSchedule, seasonFromQuery } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
@@ -202,8 +203,10 @@ module.exports = async function handler(req, res) {
   }
 
   players.sort((a, b) => b.prob - a.prob);
+  // The book's pre-game line for each player (ESPN), priced against the model.
+  const lineInfo = await attachPropLines(players, schedule, rosterCache, 'anytime_td');
 
-  const data = { week, year, players, timestamp: Date.now(), elapsed: Date.now() - start };
+  const data = { week, year, players, lines: lineInfo, timestamp: Date.now(), elapsed: Date.now() - start };
   cache = { data, timestamp: Date.now(), key: cacheKey };
   // Short CDN cache (60s) — a full request here does several external fetches (ESPN roster
   // per team, nflverse CSVs) and was measurably slow on every single tab load with no edge

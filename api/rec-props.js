@@ -1,3 +1,4 @@
+const { attachPropLines } = require('../lib/espn-props.js');
 const { fetchWeekSchedule, seasonFromQuery } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
@@ -136,8 +137,10 @@ async function handler(req, res) {
   }
 
   players.sort((a, b) => b.projected - a.projected);
+  // The book's pre-game line for each player (ESPN), priced against the model.
+  const lineInfo = await attachPropLines(players, schedule, rosterCache, 'rec_yds');
 
-  const data = { week, year, players, skipped, timestamp: Date.now(), elapsed: Date.now() - start };
+  const data = { week, year, players, lines: lineInfo, skipped, timestamp: Date.now(), elapsed: Date.now() - start };
   cache = { data, timestamp: Date.now(), key: cacheKey };
   // Short CDN cache — see api/props.js for the reasoning (60s balances "tabs feel slow with
   // zero edge caching" against "a deploy looks broken for 30+ minutes," which the old

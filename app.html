@@ -679,6 +679,7 @@ function playerPanel(p, market) {
     <div class="pp-section"><div class="pp-t">This week</div>
       <div class="pp-kv">${tiles.map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>
       <div class="pp-note">${p.badge ? `${ppEsc(p.badge.label)} · ` : ''}Confidence ${ppEsc(p.ci?.label || '—')}${d?.oppRank ? ` · ${ppEsc(d.oppRank.team)} allow ${d.oppRank.perGame.toFixed(1)} per game in ${ppEsc(d.oppRank.label)}` : ''}</div></div>
+    ${bookLineSection(p, market)}
     ${games.length ? `<div class="pp-section"><div class="pp-t">${market === 'td' ? 'Touches by game, touchdowns marked' : 'Yards by game vs this week’s projection'}</div>${ppGameLogChart(d, market, proj)}</div>` : '<div class="pp-note">No game log for this player yet.</div>'}
     ${d && games.some(g => g.share != null) ? `<div class="pp-section"><div class="pp-t">Share of team ${ppEsc(d.volLabel.toLowerCase())}</div>${ppShareChart(d)}</div>` : ''}
     <div class="pp-section"><div class="pp-t">Why the model sees it this way</div>${sigs || '<div class="pp-note">No signal data</div>'}</div>
@@ -867,6 +868,11 @@ function buildPredictionsSnapshot(teamData, props) {
     (list || []).forEach(p => {
       if (p[valueKey] == null) return;
       const extra = propType === 'anytime_td' ? { tier: p.badge?.tier || p.badge?.label || null, ci: p.ci?.tier || null } : { floor: p.floor, ceiling: p.ceiling };
+      // The book's line at snapshot time, so the record can grade the model against it.
+      const l = p.line;
+      if (l) Object.assign(extra, propType === 'anytime_td'
+        ? { bookPrice: l.price, ev: l.ev }
+        : { bookLine: l.line, bookOver: l.overPrice, bookUnder: l.underPrice, evSide: l.side, ev: l.ev });
       preds.push({ name: p.name, propType, team: abbrFor(p.team), opponent: abbrFor(p.opponent), prediction: p[valueKey], ...extra });
     });
   };
@@ -1069,6 +1075,35 @@ async function loadTdProps() {
   try { const [d] = await Promise.all([cachedJSON('/api/props?week=' + week), ensurePropsGameSlotMap()]); rawData.td = d; renderTdProps(d); }
   catch (e) { document.getElementById('content').innerHTML = errorHTML(e); }
 }
+// ── The book's line against the model (ESPN pre-game prop lines; p.line from the endpoints) ──
+function fmtOdds(a) { return a == null ? '—' : (a > 0 ? '+' : '') + a; }
+function evText(ev) { return ev == null ? '—' : `<span style="color:${ev > 0 ? 'var(--teal)' : 'var(--t3)'};font-weight:${ev > 0 ? 700 : 400}">${ev > 0 ? '+' : ''}${ev}%</span>`; }
+function tdLineCells(p) {
+  const l = p.line;
+  return `<td class="td-touch">${l ? fmtOdds(l.price) : '—'}</td><td class="td-touch">${l ? evText(l.ev) : '—'}</td>`;
+}
+function yardLineCells(p) {
+  const l = p.line;
+  if (!l) return '<td class="td-touch">—</td><td class="td-touch">—</td>';
+  const gap = `<span style="color:${l.farOff ? 'var(--amber)' : 'var(--t2)'};font-weight:${l.farOff ? 700 : 400}">${l.diff > 0 ? '+' : ''}${l.diff}</span>`;
+  const side = l.ev != null && l.ev > 0 ? ` · ${l.side === 'over' ? 'Over' : 'Under'} ${evText(l.ev)}` : '';
+  return `<td class="td-touch">${l.line}</td><td class="td-touch" style="white-space:nowrap">${gap}${side}</td>`;
+}
+function bookLineSection(p, market) {
+  const l = p.line;
+  if (!l) return '';
+  const book = l.book ? ` (${ppEsc(l.book)})` : '';
+  const tiles = market === 'td'
+    ? [['Book odds', fmtOdds(l.price)], ['Book chance', l.bookProb + '%'], ['Model chance', p.prob + '%'], ['Expected value', evText(l.ev)]]
+    : [['Book line', l.line], ['Model projection', p.projected], ['Gap', (l.diff > 0 ? '+' : '') + l.diff + ' yds'],
+       ['Over / under odds', `${fmtOdds(l.overPrice)} / ${fmtOdds(l.underPrice)}`], ['Model: over', l.modelOver + '%'], ['Book: over', l.bookOver != null ? l.bookOver + '%' : '—']];
+  const note = market === 'td'
+    ? (l.ev > 0 ? `At ${fmtOdds(l.price)} the model sees a ${l.ev}% return per bet over the long run.` : 'At this price the model sees no edge.')
+    : `${l.farOff ? `The model is ${Math.abs(l.diff)} yds ${l.diff > 0 ? 'above' : 'below'} the book, a big gap: check for news the model can't see. ` : ''}${l.ev > 0 ? `Best side: ${l.side} ${l.line}, ${l.ev}% expected return.` : 'Neither side shows an edge at these odds.'} The over chance assumes a bell-shaped spread around the projection, so treat it as a rough guide.`;
+  return `<div class="pp-section"><div class="pp-t">Against the book${book}</div>
+    <div class="pp-kv">${tiles.map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>
+    <div class="pp-note">${note}</div></div>`;
+}
 function playerDrawerHeader(p) {
   return `<div class="dd-name">${p.name}</div><div class="dd-sub">${p.position?p.position+' · ':''}${p.team} vs ${p.opponent}</div>`;
 }
@@ -1086,12 +1121,12 @@ function renderTdProps(d) {
     const key = rowKey(p); byKey[key] = p;
     const unmodeledFlag = p.unmodeledTeammates?.length ? ` <span style="color:var(--amber)" title="${p.unmodeledTeammates.join(', ')} is active on the roster with no recorded usage this season — this projection doesn't account for them">⚠</span>` : '';
     return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}${unmodeledFlag}</td>
-      <td class="td-pos">${p.position}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.prob}%</td>
+      <td class="td-pos">${p.position}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.prob}%</td>${tdLineCells(p)}
       <td class="td-touch">${p.touches}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
   }).join('');
   document.getElementById('content').innerHTML = filterBarHTML + `<div class="table-scroll"><table class="td-table">
-    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Anytime TD%</th><th class="num-col">Touches (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
-    <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
+    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Anytime TD%</th><th class="num-col">Book Odds</th><th class="num-col">EV</th><th class="num-col">Touches (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="9" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
   document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => { const p = byKey[row.dataset.expandKey]; openDrawer(playerDrawerHeader(p), tdDrawerBody(p)); }));
   attachSignalFilterHandlers('td', label => { filterState.td.signal = label; renderTdProps(d); });
   attachFilterHandlers('td', renderTdProps);
@@ -1115,12 +1150,12 @@ function renderRushProps(d) {
     const key = rowKey(p); byKey[key] = p;
     const unmodeledFlag = p.unmodeledTeammates?.length ? ` <span style="color:var(--amber)" title="${p.unmodeledTeammates.join(', ')} is active on the roster with no recorded usage this season — this projection doesn't account for them">⚠</span>` : '';
     return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}${unmodeledFlag}</td>
-      <td class="td-pos">${p.position||'RB'}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td><td class="td-touch">${p.floor}–${p.ceiling}</td>
+      <td class="td-pos">${p.position||'RB'}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td>${yardLineCells(p)}<td class="td-touch">${p.floor}–${p.ceiling}</td>
       <td class="td-touch">${p.projCarries ?? '—'}</td><td class="td-touch">${p.carries}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
   }).join('');
   document.getElementById('content').innerHTML = filterBarHTML + `<div class="table-scroll"><table class="td-table">
-    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Proj Carries</th><th class="num-col">Carries (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
-    <tbody>${rows||'<tr><td colspan="9" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
+    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Book Line</th><th class="num-col">Model vs Line</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Proj Carries</th><th class="num-col">Carries (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="11" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
   document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => { const p = byKey[row.dataset.expandKey]; openDrawer(playerDrawerHeader(p), rushDrawerBody(p)); }));
   attachSignalFilterHandlers('rush', label => { filterState.rush.signal = label; renderRushProps(d); });
   attachFilterHandlers('rush', renderRushProps);
@@ -1143,12 +1178,12 @@ function renderRecProps(d) {
     const badgeHtml = badgeHTML(p.badge, 'badge-shootout');
     const key = rowKey(p); byKey[key] = p;
     return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
-      <td class="td-pos">${p.position}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td>
+      <td class="td-pos">${p.position}</td><td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td>${yardLineCells(p)}
       <td class="td-touch">${p.floor}–${p.ceiling}</td><td class="td-touch">${p.projReceptions ?? '—'}</td><td class="td-touch">${p.targets}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
   }).join('');
   document.getElementById('content').innerHTML = filterBarHTML + `<div class="table-scroll"><table class="td-table">
-    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Proj Rec</th><th class="num-col">Targets (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
-    <tbody>${rows||'<tr><td colspan="9" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
+    <thead><tr><th>Player</th><th>Pos</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Book Line</th><th class="num-col">Model vs Line</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Proj Rec</th><th class="num-col">Targets (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="11" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
   document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => { const p = byKey[row.dataset.expandKey]; openDrawer(playerDrawerHeader(p), recDrawerBody(p)); }));
   attachSignalFilterHandlers('rec', label => { filterState.rec.signal = label; renderRecProps(d); });
   attachFilterHandlers('rec', renderRecProps);
@@ -1171,12 +1206,12 @@ function renderPassProps(d) {
     const badgeHtml = badgeHTML(p.badge, 'badge-shootout');
     const key = rowKey(p); byKey[key] = p;
     return `<tr class="expand-row" data-expand-key="${key}"><td class="td-name"><span class="expand-arrow">${icon('chevron')}</span>${p.name}</td>
-      <td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td><td class="td-touch">${p.floor}–${p.ceiling}</td>
+      <td class="td-team">${p.team} vs ${p.opponent}</td><td class="td-prob">${p.projected}</td>${yardLineCells(p)}<td class="td-touch">${p.floor}–${p.ceiling}</td>
       <td class="td-touch">${p.attempts}</td><td>${signalChipsHTML(p.signals)}</td><td>${badgeHtml}</td></tr>`;
   }).join('');
   document.getElementById('content').innerHTML = filterBarHTML + `<div class="table-scroll"><table class="td-table">
-    <thead><tr><th>QB</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Attempts (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
-    <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
+    <thead><tr><th>QB</th><th>Matchup</th><th class="num-col">Proj Yds</th><th class="num-col">Book Line</th><th class="num-col">Model vs Line</th><th class="num-col">Floor–Ceiling</th><th class="num-col">Attempts (L5)</th><th>Signals</th><th>Badge</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="9" style="text-align:center;color:var(--t3);padding:20px">No players match this filter</td></tr>'}</tbody></table></div>`;
   document.querySelectorAll('.expand-row').forEach(row => row.addEventListener('click', () => { const p = byKey[row.dataset.expandKey]; openDrawer(playerDrawerHeader(p), passDrawerBody(p)); }));
   attachSignalFilterHandlers('pass', label => { filterState.pass.signal = label; renderPassProps(d); });
   attachFilterHandlers('pass', renderPassProps);
@@ -2191,6 +2226,17 @@ function renderAccuracy(data) {
       <div class="game-lean-meta"><span>${b.n} graded</span><span style="color:var(--teal)">${fmtPct(b.hitRate)} hit rate</span></div></div>`;
   }).join('');
 
+  // Against the book: model vs line on the same games, and the +EV calls as flat 1-unit bets.
+  const evLine = e => e?.n ? `${e.n} bets · ${e.won} won · ${e.units > 0 ? '+' : ''}${fmtNum(e.units)} units (${e.roi > 0 ? '+' : ''}${fmtNum(e.roi)}% per bet)` : 'no priced bets graded yet';
+  const bookRows = [['rushYds', 'Rushing yds'], ['recYds', 'Receiving yds'], ['passYds', 'Passing yds']].map(([k, lbl]) => {
+    const v = agg[k].vsLine || {};
+    const closer = v.n ? (v.modelMae < v.lineMae ? 'model closer' : v.modelMae > v.lineMae ? 'book closer' : 'even') : '';
+    return `<div class="game-lean-row"><div class="game-lean-teams">${lbl}</div>
+      <div class="game-lean-meta">${v.n ? `<span>${v.n} graded</span><span>model miss ${fmtNum(v.modelMae)}</span><span>book miss ${fmtNum(v.lineMae)}</span><span style="color:var(--teal)">${closer}</span>` : '<span>no lines graded yet</span>'}</div></div>
+      <div class="game-lean-row"><div class="game-lean-teams" style="color:var(--t3)">+EV sides</div><div class="game-lean-meta"><span>${evLine(agg[k].evBets)}</span></div></div>`;
+  }).join('') + `<div class="game-lean-row"><div class="game-lean-teams">Anytime TD +EV</div><div class="game-lean-meta"><span>${evLine(agg.anytimeTd.evBets)}</span></div></div>`;
+  const bookSection = `<div class="today-section"><div class="today-section-hdr"><span>Against the book</span><span style="font-weight:400;color:var(--t3)">Model vs the pre-game line on the same games</span></div><div class="today-section-body">${bookRows}</div></div>`;
+
   const mlLeanLabels = { strong: 'Strong Lean (65%+)', lean: 'Lean (57-65%)', tossup: 'Toss-up (<57%)' };
   const mlLeanRows = ['strong', 'lean', 'tossup'].map(tier => {
     const b = agg.gameWinner.byLean[tier];
@@ -2204,7 +2250,7 @@ function renderAccuracy(data) {
       <div class="game-lean-meta"><span>${b.n} graded</span><span style="color:var(--t1);font-weight:600">MAE ${fmtNum(b.mae)}</span><span>bias ${fmtNum(b.bias)}</span></div></div>`;
   }).join('');
 
-  document.getElementById('content').innerHTML = headerHTML + backtestHTML() + `<div style="margin:18px 0 8px;font-size:14px;font-weight:700;color:var(--t1)">Live record</div>` + kpis +
+  document.getElementById('content').innerHTML = headerHTML + backtestHTML() + `<div style="margin:18px 0 8px;font-size:14px;font-weight:700;color:var(--t1)">Live record</div>` + kpis + bookSection +
     `<div class="today-two-col">
       <div class="today-section"><div class="today-section-hdr"><span>Anytime TD — Hit Rate by Badge Tier</span></div><div class="today-section-body">${badgeRows}</div></div>
       <div class="today-section"><div class="today-section-hdr"><span>Anytime TD — Hit Rate by Confidence Tier</span></div><div class="today-section-body">${confRows}</div></div>

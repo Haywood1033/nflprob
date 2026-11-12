@@ -18,10 +18,20 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   carries a game), `lib/rec-scoring.js` (WR/TE, and RBs at 2+ targets), `lib/pass-scoring.js`,
   `lib/team-scoring.js`; `lib/calibration.js` (fitted calibrations, the 25/75 volume blend).
 - DFS: `lib/dfs-projections.js`, `lib/dfs-optimizer.js`, `lib/classic-optimizer.js`.
+- Book lines: `lib/espn-props.js` reads ESPN's pre-game player prop lines (core API propBets,
+  keyed by ESPN athlete id, matched through the rosters); `lib/prop-ev.js` prices them against the
+  model (TD EV; yardage over chance from a normal around the projection). `/api/prop-lines?week=N`
+  shows what the feed returned and what the parser skipped. Game lines prefer ESPN's current line,
+  nflverse's file as the fallback (`withEspnLine` in `lib/vegas-lines.js`).
 - `docs/golfprob-build-readout.md` used to sit here by mistake; golfprob's notes live in golfprob.
 - The README's "Build order" section is out of date (yardage props, DFS and accuracy all exist).
 
 ## Open items
+
+- Prop lines: the ESPN parser was written without access to the live feed (dev network blocks
+  ESPN). Check `/api/prop-lines` on the live site before trusting it. Yardage EV uses a normal
+  approximation that hasn't been checked on past lines; the weekly snapshot stores each line so the
+  Accuracy tab's "Against the book" section can measure it.
 
 - The QB fix relies on ESPN's injury report; if ESPN lags, the app can name an injured starter.
 - DFS projects QB rushing and RB receiving from plain recent averages (the props tabs use the
