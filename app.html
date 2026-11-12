@@ -19,7 +19,7 @@
    hover/emphasis, instead of a different tint per card. */
 :root{--bg:#0a0e1a;--bg2:#10162a;--bg3:#151d34;--bg4:#1c2541;--bd:#232d47;--bd2:#33405f;--t1:#e9edf5;--t2:#b0b9cc;--t3:#8690a8;--teal:#2dd4bf;--green:#4ade80;--amber:#fbbf24;--red:#f87171;--purple:#a78bfa;--blue:#60a5fa;--mono:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;--sans:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;--r:10px;--r-sm:6px;--gutter:max(24px,calc((100% - 1240px) / 2 + 24px))}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px;line-height:1.45;min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px;line-height:1.45;min-height:100vh;overflow-x:hidden;overflow-x:clip;-webkit-font-smoothing:antialiased}
 .hdr{display:flex;align-items:center;gap:12px;padding:14px 22px;border-bottom:1px solid var(--bd);background:var(--bg);position:sticky;top:0;z-index:100}
 .logo{font-family:var(--sans);font-size:15px;font-weight:700;color:var(--t1)}
 .hdr-week{font-family:var(--sans);font-size:12px;font-weight:600;color:var(--t2);background:rgba(255,255,255,0.05);border:1px solid var(--bd2);padding:4px 11px;border-radius:20px}
@@ -2375,20 +2375,18 @@ initApp();
 // a reflow (switching tabs fixed it, with no CSS change). Flipping the html.rf class nudges
 // --gutter and .wrap by 0.001px, which makes the browser recompute them against the new width.
 // It never hides the page: hiding it (the old approach) dropped the scroll position mid-gesture
-// and left the top of the page stuck half off-screen. Width changes only, so the address bar
-// collapsing during a scroll (a height-only resize) does nothing; it runs once the rotation
-// has settled, since Safari sends several resizes while it animates.
-let _reflowTimer = null, _lastWidth = window.innerWidth;
+// and left the top of the page stuck half off-screen. It runs once the rotation has settled.
+// body uses overflow-x:clip, not hidden: hidden on the body makes iPhone Safari's sticky header
+// and scroll-to-top misbehave.
+let _reflowTimer = null;
 function _forceLayoutReflow() {
   clearTimeout(_reflowTimer);
-  _reflowTimer = setTimeout(() => {
-    if (window.innerWidth === _lastWidth) return;
-    _lastWidth = window.innerWidth;
-    document.documentElement.classList.toggle('rf');
-  }, 150);
+  _reflowTimer = setTimeout(() => document.documentElement.classList.toggle('rf'), 300);
 }
+// Orientation changes only, never plain resizes: iPhone Safari resizes the page whenever the
+// address bar slides in or out during a scroll, and nothing should run then.
 window.addEventListener('orientationchange', _forceLayoutReflow);
-window.addEventListener('resize', _forceLayoutReflow);
+try { window.matchMedia('(orientation: landscape)').addEventListener('change', _forceLayoutReflow); } catch (e) { /* very old Safari: orientationchange covers it */ }
 </script>
 </body>
 </html>
