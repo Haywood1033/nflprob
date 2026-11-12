@@ -1,5 +1,5 @@
 const { attachPropLines, propLinesReport } = require('../lib/espn-props.js');
-const { fetchWeekSchedule, seasonFromQuery } = require('../lib/schedule.js');
+const { fetchWeekSchedule, fetchCurrentWeek, seasonFromQuery } = require('../lib/schedule.js');
 const { fetchTeamWeekStats, computeTeamEfficiency } = require('../lib/nflverse.js');
 const { fetchPlayerWeekStats, toNflverseAbbr } = require('../lib/player-stats.js');
 const { buildGameModel } = require('../lib/team-scoring.js');
@@ -80,18 +80,23 @@ function tdPoolFromRoster(roster, playerRows, count = 8, throughWeek = -1) {
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
 
-  const week = req.query.week;
-  const year = seasonFromQuery(req.query);
-  if (!week) return res.status(400).json({ error: 'week query param required, e.g. ?week=1' });
-  const cacheKey = `${year}|${week}`;
-
-  // ?view=lines: what ESPN's prop feed returned for this week (checking the parser on live data).
-  // Lives here rather than in its own file: the Hobby plan allows 12 functions per deployment.
+  // ?view=lines: what ESPN's prop feed returned for a week (checking the parser on live data);
+  // the current week when none is given. Lives here rather than in its own file: the Hobby plan
+  // allows 12 functions per deployment.
   if (req.query.view === 'lines') {
+    const cur = req.query.week ? null : await fetchCurrentWeek();
+    const week = req.query.week || cur?.week;
+    const year = req.query.year ? seasonFromQuery(req.query) : (cur?.year || seasonFromQuery(req.query));
+    if (!week) return res.status(200).json({ error: 'Could not tell the current week from ESPN; add &week=N' });
     const sched = await fetchWeekSchedule(year, week);
     if (!sched?.length) return res.status(200).json({ week, year, games: [], error: 'No schedule found' });
     return res.status(200).json({ week, year, games: await propLinesReport(sched, fetchTeamRoster) });
   }
+
+  const week = req.query.week;
+  const year = seasonFromQuery(req.query);
+  if (!week) return res.status(400).json({ error: 'week query param required, e.g. ?week=1' });
+  const cacheKey = `${year}|${week}`;
 
   const age = cache.timestamp ? Date.now() - cache.timestamp : Infinity;
   if (cache.key === cacheKey && age < CACHE_TTL && cache.data) {
