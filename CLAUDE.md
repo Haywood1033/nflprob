@@ -68,6 +68,10 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   With `/?debug=scroll` (scroll-debug.js) the owner's phone scrolled correctly, as did the bare
   `/scrolltest.html`; the plain address had likely been showing an older copy, so the app page is
   now served `Cache-Control: no-store` (vercel.json). The diagnostic stays for future checks.
+  That wasn't it: the plain address still broke, the debug address didn't, same code. So the page
+  now runs the diagnostic's mechanism invisibly on touch screens (the SCROLL KEEP-ALIVE block in
+  app.html: passive touch/scroll listeners and a hidden pinned element updated every frame while
+  scrolling and for 1s after). Don't remove it without testing on the owner's phone.
 - **Secrets:** the database URL and any keys live in Vercel's environment variables. Refer to
   variable names only; never put values in code, commits or messages.
 - **Stack:** Vercel serverless functions in `api/` (one file per route; the Hobby plan caps a

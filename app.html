@@ -2391,6 +2391,30 @@ async function initApp() {
   loadThisWeek();
 }
 initApp();
+// SCROLL KEEP-ALIVE (touch screens). On the owner's phone (Chrome, WebKit) the page ended up
+// drawn ~103px down after scrolling, hiding the top under the pinned header, on every layout tried.
+// With the ?debug=scroll panel running it scrolled correctly, same code otherwise. The panel does
+// two things: passive touch / scroll / visual-viewport listeners, and a pinned element updated
+// every frame (which keeps the page and its pinned layers redrawn in step). This does the same,
+// invisibly, only while the page is being touched or scrolled and for a second after.
+(function () {
+  if (!matchMedia('(hover:none),(pointer:coarse)').matches) return;
+  const tick = document.createElement('div');
+  tick.setAttribute('aria-hidden', 'true');
+  tick.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;overflow:hidden';
+  document.body.appendChild(tick);
+  let until = 0, running = false, n = 0;
+  const frame = () => {
+    tick.textContent = String(n++ % 60) + ' ' + Math.round(window.scrollY);
+    if (performance.now() < until) requestAnimationFrame(frame); else running = false;
+  };
+  const wake = () => { until = performance.now() + 1000; if (!running) { running = true; requestAnimationFrame(frame); } };
+  const opts = { passive: true, capture: true };
+  ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(ev => addEventListener(ev, wake, opts));
+  addEventListener('scroll', wake, { passive: true });
+  addEventListener('resize', wake);
+  if (window.visualViewport) { visualViewport.addEventListener('resize', wake); visualViewport.addEventListener('scroll', wake); }
+})();
 // ?debug=scroll loads a scroll diagnostic panel (scroll-debug.js); never loaded otherwise.
 if (params.get('debug') === 'scroll') { const sd = document.createElement('script'); sd.src = '/scroll-debug.js'; document.body.appendChild(sd); }
 
