@@ -24,9 +24,9 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
    element with backdrop-filter stops repainting on iPhone (Safari and Chrome both use WebKit) and
    leaves a frozen strip at the top of the screen. */
 .topbar{position:sticky;top:0;z-index:100;background:var(--bg)}
-/* Touch screens (phones, tablets): the bar scrolls away with the page instead of staying pinned.
-   Pinned, it covered a large share of a landscape tablet screen and cut the first rows in half. */
-@media (hover:none),(pointer:coarse){.topbar{position:relative}}
+/* Touch screens (phones, tablets): only the tab bar stays pinned; the logo row scrolls away.
+   The whole bar pinned covered a large share of a landscape tablet screen. */
+@media (hover:none),(pointer:coarse){.topbar{display:contents}.tabs{position:sticky;top:0;z-index:100}}
 .hdr{display:flex;align-items:center;gap:12px;padding:14px 22px;border-bottom:1px solid var(--bd);background:var(--bg)}
 .logo{font-family:var(--sans);font-size:15px;font-weight:700;color:var(--t1)}
 .hdr-week{font-family:var(--sans);font-size:12px;font-weight:600;color:var(--t2);background:rgba(255,255,255,0.05);border:1px solid var(--bd2);padding:4px 11px;border-radius:20px}
@@ -769,7 +769,8 @@ function renderThisWeek(teamData, propsData, allProps) {
       <div class="gs-divider"></div><div class="gs-total"><span class="gs-total-pts" style="color:${tc}">${m.total??'—'}</span><span class="gs-meta">proj total</span></div></div>`;
   }).join('') + '</div>';
   const shootoutCount = games.filter(g=>g.model?.shootoutSignal).length;
-  const eliteCount = players.filter(p=>badgeTier(p.badge)==='Elite').length;
+  // Across every prop type, like Best Play below (TD props only when the yardage tabs didn't load).
+  const eliteCount = allProps ? buildAllPlaysPool(allProps).filter(p => tierWeight(p.badge) === 3).length : players.filter(p=>badgeTier(p.badge)==='Elite').length;
   const signalPlays = players.filter(p=>p.signalCount>=3);
   const kpiHTML = `<div class="today-kpis">
     <div class="today-kpi"><div class="today-kpi-val">${games.length}</div><div class="today-kpi-lbl">Games</div></div>
