@@ -19,6 +19,9 @@
    hover/emphasis, instead of a different tint per card. */
 :root{--bg:#0a0e1a;--bg2:#10162a;--bg3:#151d34;--bg4:#1c2541;--bd:#232d47;--bd2:#33405f;--t1:#e9edf5;--t2:#b0b9cc;--t3:#8690a8;--teal:#2dd4bf;--green:#4ade80;--amber:#fbbf24;--red:#f87171;--purple:#a78bfa;--blue:#60a5fa;--mono:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;--sans:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;--r:10px;--r-sm:6px;--gutter:max(24px,calc((100% - 1240px) / 2 + 24px))}
 *{box-sizing:border-box;margin:0;padding:0}
+/* No scroll anchoring: on iPad (WebKit) it pulled the page back down after scrolling to the top,
+   leaving the filters and first rows hidden under the pinned header. */
+html,body{overflow-anchor:none}
 body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px;line-height:1.45;min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased}
 .hdr{display:flex;align-items:center;gap:12px;padding:14px 22px;border-bottom:1px solid var(--bd);background:var(--bg);position:sticky;top:0;z-index:100}
 .logo{font-family:var(--sans);font-size:15px;font-weight:700;color:var(--t1)}
@@ -2344,6 +2347,7 @@ function attachSeasonPillHandlers() { document.querySelectorAll('[data-season-ca
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active')); t.classList.add('active');
   currentTab = t.dataset.tab;
+  window.scrollTo(0, 0); // a new tab starts at its top, not at the previous tab's scroll position
   if (currentTab==='week') loadThisWeek();
   else if (currentTab==='team') loadTeamModel();
   else if (currentTab==='td') loadTdProps();

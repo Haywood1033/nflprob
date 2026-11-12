@@ -58,6 +58,9 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   Every sideways-scrolling box (game strip, tab bar, tables) sets `overflow-y:hidden`: with
   `overflow-x:auto` alone it can also scroll vertically by a pixel or two, and on a touch screen
   an upward swipe then scrolls the box, not the page, leaving its top cut off.
+  `overflow-anchor:none` on html/body: a screen recording on iPad Chrome (Nov 12) showed the page
+  reach the top and then slide back down by the header's height on its own. Switching tabs scrolls
+  to the top.
 - **Secrets:** the database URL and any keys live in Vercel's environment variables. Refer to
   variable names only; never put values in code, commits or messages.
 - **Stack:** Vercel serverless functions in `api/` (one file per route; the Hobby plan caps a
