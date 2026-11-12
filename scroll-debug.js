@@ -11,7 +11,10 @@
   const now = () => Math.round(performance.now());
   const note = msg => { recent.push([now(), msg]); while (recent.length && now() - recent[0][0] > 1000) recent.shift(); };
   const vv = window.visualViewport;
-  let touching = false, lastTouchEnd = 0, lastY = window.scrollY, lastH = window.innerHeight;
+  const scroller = document.getElementById('scroller');
+  const inner = () => scroller && getComputedStyle(scroller).overflowY === 'auto';
+  const getY = () => Math.round(inner() ? scroller.scrollTop : window.scrollY);
+  let touching = false, lastTouchEnd = 0, lastY = getY(), lastH = window.innerHeight;
 
   addEventListener('touchstart', () => { touching = true; }, { passive: true, capture: true });
   addEventListener('touchend', () => { touching = false; lastTouchEnd = now(); note('finger up'); }, { passive: true, capture: true });
@@ -28,8 +31,8 @@
   addEventListener('focusin', e => note(`focus ${e.target.tagName}.${e.target.className || ''}`));
   document.addEventListener('click', e => note(`tap ${(e.target.closest('[data-tab]')?.dataset.tab) || e.target.tagName}`), true);
 
-  addEventListener('scroll', () => {
-    const y = Math.round(window.scrollY), d = y - lastY;
+  document.addEventListener('scroll', () => {
+    const y = getY(), d = y - lastY;
     // A change with no finger down, after any momentum would have settled (400ms), is unexplained.
     if (!touching && now() - lastTouchEnd > 400 && Math.abs(d) >= 8) {
       const why = recent.filter(([t]) => now() - t <= 1000).map(([t, m]) => `${now() - t}ms ago: ${m}`).slice(-4);
@@ -37,11 +40,11 @@
       while (log.length > 6) log.shift();
     }
     lastY = y;
-  }, { passive: true });
+  }, { passive: true, capture: true });
 
   const render = () => {
     const top = Math.round(document.getElementById('content')?.getBoundingClientRect().top ?? NaN);
-    panel.textContent = `scrollY ${Math.round(scrollY)} · content top on screen ${top} · window h ${innerHeight}` +
+    panel.textContent = `${inner() ? 'content' : 'page'} scroll ${getY()} · page scrollY ${Math.round(scrollY)} · content top on screen ${top} · window h ${innerHeight}` +
       (vv ? ` · visible h ${Math.round(vv.height)} offset ${Math.round(vv.offsetTop)}` : '') +
       ` · page h ${document.documentElement.scrollHeight}\n` +
       (log.length ? 'Jumps with no finger down:\n' + log.join('\n') : 'No jumps with no finger down yet.');

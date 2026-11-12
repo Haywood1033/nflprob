@@ -297,13 +297,17 @@ body{font-variant-numeric:tabular-nums;background:var(--bg)}
   .wrap{max-width:1600px}
   .hdr,.tabs{padding-left:max(16px,calc((100% - 1600px) / 2 + 16px));padding-right:max(16px,calc((100% - 1600px) / 2 + 16px))}
 }
-/* Touch screens (phones, tablets): the header and tab bar are pinned with position:fixed, and the
-   page reserves their height (56px header + 47px tab bar) at the top. Pinned with position:sticky
-   (as on desktop), Chrome on iPad left the page's top hidden under them; unpinned, it didn't. */
+/* Touch screens (phones, tablets): the document itself never scrolls. The header and tab bar sit
+   at the top of a full-height column and only #scroller, below them, scrolls. Measured on the
+   owner's phone (Chrome on iOS): when the document scrolled, the browser's toolbar slid in and out,
+   resized the page mid-scroll and left it resting ~120px down with the first rows under the pinned
+   header. With nothing scrolling at document level the toolbar stays put, and the content's top is
+   always directly under the tabs. Desktop keeps the pinned (sticky) header. */
 @media (hover:none),(pointer:coarse){
-  .hdr{position:fixed;top:0;left:0;right:0;z-index:100}
-  .tabs{position:fixed;top:56px;left:0;right:0;z-index:90}
-  body{padding-top:103px}
+  html{height:100%;overflow:hidden;overscroll-behavior:none}
+  body{height:100%;height:100dvh;min-height:0;overflow:hidden;display:flex;flex-direction:column;overscroll-behavior:none}
+  .hdr,.tabs{position:static;flex:none}
+  #scroller{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 }
 /* See _forceLayoutReflow: an invisible 0.001px nudge that makes Safari recompute these after a rotation. */
 html.rf{--gutter:max(24.001px,calc((100% - 1240px) / 2 + 24.001px))}
@@ -402,7 +406,7 @@ html.rf .wrap,html.rf .hdr,html.rf .tabs{min-width:0.001px}
     <div class="tab" data-tab="season">Season Projections</div>
     <div class="tab" data-tab="accuracy">Accuracy</div>
   </div>
-  <div class="wrap" id="content"><div class="loading-state"><div class="spinner"></div><div>Loading this week's slate…</div></div></div>
+  <div id="scroller"><div class="wrap" id="content"><div class="loading-state"><div class="spinner"></div><div>Loading this week's slate…</div></div></div></div>
 <script>
 // Crisp inline-SVG icon set, replacing emoji glyphs (which render inconsistently across OS
 // and browsers — different weight, different style, sometimes missing entirely) with a
@@ -2355,7 +2359,7 @@ function attachSeasonPillHandlers() { document.querySelectorAll('[data-season-ca
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active')); t.classList.add('active');
   currentTab = t.dataset.tab;
-  window.scrollTo(0, 0); // a new tab starts at its top, not at the previous tab's scroll position
+  window.scrollTo(0, 0); document.getElementById('scroller').scrollTop = 0; // a new tab starts at its top
   if (currentTab==='week') loadThisWeek();
   else if (currentTab==='team') loadTeamModel();
   else if (currentTab==='td') loadTdProps();
@@ -2391,31 +2395,6 @@ async function initApp() {
   loadThisWeek();
 }
 initApp();
-// FINISH THE SCROLL TO THE TOP (touch screens). Measured on the owner's phone (Chrome, landscape,
-// ?debug=scroll): scrolling up, Chrome's toolbar slides back in (window height 603 → 547) and the
-// browser shifts the page down to compensate (scrollY 88 → 122), so it comes to rest just short of
-// the top with the first row under the pinned header. When the user has scrolled up, let go, and
-// the page settles within 140px of the top right after the toolbar grew, finish the trip to 0.
-(function () {
-  if (!matchMedia('(hover:none),(pointer:coarse)').matches) return;
-  let touching = false, fingerY = null, userScrolledUp = false, lastShrink = -Infinity, lastH = innerHeight, timer = null;
-  const settle = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      const y = window.scrollY;
-      if (!touching && userScrolledUp && y > 0 && y <= 140 && performance.now() - lastShrink < 2500) window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 250);
-  };
-  addEventListener('touchstart', e => { touching = true; fingerY = e.touches[0]?.clientY ?? null; }, { passive: true });
-  addEventListener('touchmove', e => {
-    const y = e.touches[0]?.clientY;
-    if (y != null && fingerY != null && Math.abs(y - fingerY) > 4) { userScrolledUp = y > fingerY; fingerY = y; } // finger moving down = scrolling up
-  }, { passive: true });
-  addEventListener('touchend', () => { touching = false; settle(); }, { passive: true });
-  addEventListener('touchcancel', () => { touching = false; }, { passive: true });
-  addEventListener('resize', () => { if (innerHeight < lastH) lastShrink = performance.now(); lastH = innerHeight; settle(); });
-  addEventListener('scroll', settle, { passive: true });
-})();
 // ?debug=scroll loads a scroll diagnostic panel (scroll-debug.js); never loaded otherwise.
 if (params.get('debug') === 'scroll') { const sd = document.createElement('script'); sd.src = '/scroll-debug.js'; document.body.appendChild(sd); }
 

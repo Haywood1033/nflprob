@@ -51,29 +51,17 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   `app.html`, extract its `<script>` block and run `node --check` on it.
 - **Deploy:** Vercel deploys `main` automatically; there's no build step. Pushing straight to `main`
   is fine for this project. A hard refresh (Cmd+Shift+R) may be needed after a deploy.
-- **Mobile scrolling:** never run layout code on `resize`: phones and tablets resize the page
-  whenever the address bar slides during a scroll. A Nov 3 rotation fix that hid and redrew the
-  page on every resize broke scrolling until Nov 12; the rotation fix now runs on orientation
-  changes only and never hides the page. The pinned header and tab bar are as they were before.
-  Every sideways-scrolling box (game strip, tab bar, tables) sets `overflow-y:hidden`: with
-  `overflow-x:auto` alone it can also scroll vertically by a pixel or two, and on a touch screen
-  an upward swipe then scrolls the box, not the page, leaving its top cut off.
-  `overflow-anchor:none` on html/body: a screen recording on iPad Chrome (Nov 12) showed the page
-  reach the top and then slide back down by the header's height on its own. Switching tabs scrolls
-  to the top.
-  Touch screens pin the header and tab bar with `position:fixed` and reserve 103px at the top of
-  the body; desktop keeps `position:sticky`. Evidence: on iPad Chrome every sticky version hid the
-  page top under the bar, and the one unpinned version didn't. If the header or tab bar height
-  changes, update the 103px (and the tab bar's `top:56px`).
-  With `/?debug=scroll` (scroll-debug.js) the owner's phone scrolled correctly, as did the bare
-  `/scrolltest.html`; the plain address had likely been showing an older copy, so the app page is
-  now served `Cache-Control: no-store` (vercel.json). The diagnostic stays for future checks.
-  The cause, measured with the ?debug=scroll panel on the owner's phone (Chrome, landscape): when
-  scrolling up, Chrome's toolbar slides back in (window height 603 → 547) and the browser shifts the
-  page down to compensate (scrollY 88 → 122), so it rests just short of the top with the first row
-  under the pinned header. Fix: the FINISH THE SCROLL TO THE TOP block in app.html (touch screens:
-  after an upward scroll that settles within 140px of the top right after the toolbar grew, scroll
-  to 0). Earlier changes above didn't address this; they're harmless and left in.
+- **Mobile scrolling:** on touch screens the document never scrolls: `html`/`body` are a fixed-height
+  column (header, tab bar, then `#scroller`, which is the only thing that scrolls). Desktop keeps
+  the sticky header and document scrolling. Why: measured on the owner's phone (Chrome on iOS,
+  `?debug=scroll`), document scrolling made the browser toolbar slide in and out, resize the page
+  mid-scroll and leave it resting ~120px down with the first rows under the pinned header. Sticky,
+  fixed, unpinned, scroll anchoring off and a "finish the scroll" script all failed to fix that.
+  Rules: don't reintroduce document-level scrolling or `position:sticky/fixed` bars on touch
+  screens; scroll code must target `#scroller` as well as `window`; never run layout code on
+  `resize`; sideways-scrolling boxes keep `overflow-y:hidden`. `/?debug=scroll` (scroll-debug.js)
+  shows a live scroll log, and `/scrolltest.html` is a bare control page. The app page is served
+  `Cache-Control: no-store` so phones never show an old copy.
 - **Secrets:** the database URL and any keys live in Vercel's environment variables. Refer to
   variable names only; never put values in code, commits or messages.
 - **Stack:** Vercel serverless functions in `api/` (one file per route; the Hobby plan caps a
