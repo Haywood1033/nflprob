@@ -45,3 +45,16 @@ test('DFS: the resolved starter is not benched even though another QB played mor
   assert.equal(benchedQbNote('Carson Wentz', 'MIN'), null);
   assert.match(benchedQbNote('Kyler Murray', 'MIN'), /Carson Wentz/);
 });
+
+test('DFS: a lead back who missed the last game is projected with a warning; a buried back stays at zero', () => {
+  const rb = (name, week, carries, targets) => ({ player_display_name: name, player_name: name, team: 'NYG', position: 'RB', season_type: 'REG', week: String(week), carries: String(carries), targets: String(targets) });
+  const rbRows = [...[5, 6, 7, 8].map(w => rb('Lead Back', w, 17, 4)), ...[5, 6, 7, 8, 9].map(w => rb('Other Back', w, 9, 2)), rb('Buried Back', 6, 2, 0), rb('Buried Back', 7, 1, 1)];
+  const { byNormName, byNormNameNoSuffix } = buildNameIndex(rbRows);
+  const playerRowsFor = makePlayerRowsFor(byNormName, byNormNameNoSuffix);
+  const { staleRoleNote, returningRoleNote } = buildStalenessChecks({ uploadedPlayers: [], playerRowsAll: rbRows, throughWeek: 9, playerRowsFor });
+  assert.ok(staleRoleNote('Lead Back', 'NYG', 'RB'));
+  assert.match(returningRoleNote("Lead Back", "NYG", "RB"), /last stat line week 8/);
+  assert.ok(staleRoleNote('Buried Back', 'NYG', 'RB'));
+  assert.equal(returningRoleNote('Buried Back', 'NYG', 'RB'), null);
+  assert.equal(staleRoleNote('Other Back', 'NYG', 'RB'), null);
+});
