@@ -37,8 +37,10 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
 - The QB fix relies on ESPN's injury report; if ESPN lags, the app can name an injured starter.
 - DFS projects QB rushing and RB receiving from plain recent averages (the props tabs use the
   matchup-adjusted models). Only switch DFS after the backtest shows the models are better.
-- DFS reads DK's `Status` column only as OUT/IR/Doubtful/Suspended; codes like "O" aren't read,
-  and the standard DK export has no status column.
+- DFS availability comes from ESPN's rosters (`makeRosterNote` in `lib/dfs-projections.js`): a
+  QB/RB/WR/TE/K who isn't on his team's ESPN roster (practice squad, released) or is Out / IR
+  projects zero with the reason. A roster that fails to load checks nothing. A practice-squad
+  player elevated for the game shows zero until ESPN moves him; the owner can lock him in.
 - Players ruled out on ESPN are silently left off the props boards; a "ruled out" line was
   offered, not yet decided.
 - Parked idea: a parlay analyzer (screenshot or typed slip graded against the model). The owner

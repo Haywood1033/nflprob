@@ -58,3 +58,20 @@ test('DFS: a lead back who missed the last game is projected with a warning; a b
   assert.equal(returningRoleNote('Buried Back', 'NYG', 'RB'), null);
   assert.equal(staleRoleNote('Other Back', 'NYG', 'RB'), null);
 });
+
+test('DFS: a player missing from the ESPN roster (practice squad) or listed Out projects zero', () => {
+  const { makeRosterNote } = require('../lib/dfs-projections.js');
+  const e = (displayName, position, extra = {}) => ({ displayName, position, definitelyOut: false, injuryStatus: null, ...extra });
+  const full = {};
+  for (let i = 0; i < 40; i++) full['filler ' + i] = e('Filler ' + i, 'LB');
+  Object.assign(full, { 'james cook iii': e('James Cook III', 'RB'), 'gabriel davis': e('Gabriel Davis', 'WR'), 'dj moore': e('D.J. Moore', 'WR'), 'hurt guy': e('Hurt Guy', 'TE', { definitelyOut: true, injuryStatus: 'Out' }) });
+  const note = makeRosterNote({ BUF: full, NYJ: null, TEN: { 'only one': e('Only One', 'QB') } });
+  assert.match(note('Brandon Johnson', 'BUF', 'WR'), /not on the active roster/);
+  assert.equal(note('James Cook', 'BUF', 'RB'), null);      // suffix
+  assert.equal(note('Gabe Davis', 'BUF', 'WR'), null);      // nickname
+  assert.equal(note('DJ Moore', 'BUF', 'WR'), null);        // punctuation
+  assert.equal(note('Hurt Guy', 'BUF', 'TE'), 'Out this week');
+  assert.equal(note('Bills', 'BUF', 'DST'), null);
+  assert.equal(note('Anyone', 'NYJ', 'WR'), null);          // roster didn't load: no check
+  assert.equal(note('Anyone', 'TEN', 'WR'), null);          // roster looks incomplete: no check
+});
