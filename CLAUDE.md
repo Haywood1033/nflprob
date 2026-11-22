@@ -41,6 +41,12 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   QB/RB/WR/TE/K who isn't on his team's ESPN roster (practice squad, released) or is Out / IR
   projects zero with the reason. A roster that fails to load checks nothing. A practice-squad
   player elevated for the game shows zero until ESPN moves him; the owner can lock him in.
+- Players back from an absence (`returningPlayers` in `lib/roster-pool.js`): active on ESPN's
+  roster, a real role this season (WR/TE 4+ targets, RB 8+ carries a game), no games in the recent
+  window. Receiving and anytime TD always include them, projected from the season, tagged "back
+  from injury"; on receiving, teammates' target shares are scaled down by the returner's season
+  share (capped at 40%). DFS falls back to season usage for them. Not yet checked on past games.
+  The rushing tab doesn't do this yet.
 - Players ruled out on ESPN are silently left off the props boards; a "ruled out" line was
   offered, not yet decided.
 - Parked idea: a parlay analyzer (screenshot or typed slip graded against the model). The owner

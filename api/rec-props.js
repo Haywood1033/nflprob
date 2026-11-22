@@ -6,7 +6,7 @@ const { buildGameModel } = require('../lib/team-scoring.js');
 const { computeRecUsage, computeRecDefenseAllowed, projectRecYards, getRecSignals } = require('../lib/rec-scoring.js');
 const { recencyWindow, recentGames } = require('../lib/recency-window.js');
 const { fetchTeamRoster, isHealthy, getRosterEntry } = require('../lib/roster.js');
-const { poolFromRoster } = require('../lib/roster-pool.js');
+const { poolFromRoster, returningPlayers } = require('../lib/roster-pool.js');
 
 const { playerDetail } = require('../lib/player-detail.js');
 const { loadCalibration, applyYardsCalibration, seasonAverage, blendVolume } = require('../lib/calibration.js');
@@ -98,9 +98,32 @@ async function handler(req, res) {
       // The team's top two backs by recent targets, kept only if they're real pass-catchers.
       for (const rb of (roster && Object.keys(roster).length ? poolFromRoster(roster, playerRows, ['RB'], 'targets', 2, throughWeek) : []) || []) pool.push(rb);
 
+      // A receiver back from an absence (lib/roster-pool.js returningPlayers): always included,
+      // projected from his season usage. His teammates' recent target shares were earned while he
+      // was out, so they're scaled down by his season share of the team's targets (capped at 40%
+      // for all returners together). Not checked on past games yet.
+      const returning = returningPlayers(roster, playerRows, ['WR', 'TE'], throughWeek, 'targets', 4);
+      const returnUsage = new Map();
+      for (const r of returning) {
+        const u = computeRecUsage(playerRows, r.name, r.histTeam, throughWeek, 18, REC_POSITIONS);
+        if (!u) continue;
+        returnUsage.set(r.name, u);
+        const i = pool.findIndex(c => c.name === r.name);
+        if (i >= 0) pool[i] = r; else pool.push(r);
+      }
+      const rawReturnShare = [...returnUsage.values()].reduce((x, u) => x + (u.recentShare ?? 0), 0);
+      const returnShare = Math.min(0.4, rawReturnShare);
+      // The returners' own shares are held to the same cap, so the team's targets still add up.
+      if (rawReturnShare > returnShare) for (const u of returnUsage.values()) if (u.recentShare != null) u.recentShare *= returnShare / rawReturnShare;
+      const returnNames = [...returnUsage.keys()];
+
       for (const candidate of pool) {
-        const usage = computeRecUsage(playerRows, candidate.name, candidate.histTeam, throughWeek, recencyWindow(throughWeek), REC_POSITIONS);
+        const usage = candidate.returning ? returnUsage.get(candidate.name) : computeRecUsage(playerRows, candidate.name, candidate.histTeam, throughWeek, recencyWindow(throughWeek), REC_POSITIONS);
         if (!usage) continue;
+        if (!candidate.returning && returnShare > 0) {
+          if (usage.recentShare != null) usage.recentShare *= 1 - returnShare;
+          else usage.weightedTargets = (usage.weightedTargets ?? usage.targets) * (1 - returnShare);
+        }
         if (usage.position === 'RB' && usage.targets / usage.games < RB_MIN_TARGETS) continue;
         const defAllowed = computeRecDefenseAllowed(teamRows, t.oppAbbr, throughWeek, recencyWindow(throughWeek), toNflverseAbbr);
         const rawProj = projectRecYards(usage, defAllowed, t.implied);
@@ -126,6 +149,8 @@ async function handler(req, res) {
           ci: sig.ci,
           injured: !isHealthy(roster, candidate.name),
           injuryStatus: rosterEntry?.injuryStatus || null,
+          returning: candidate.returning ? { lastWeekPlayed: candidate.lastWeekPlayed } : null,
+          sharingWith: !candidate.returning && returnNames.length ? returnNames : null,
           detail: playerDetail(playerRows, { name: candidate.name, team: candidate.histTeam, position: usage.position, oppAbbr: toNflverseAbbr(t.oppAbbr), market: 'rec', throughWeek }),
         });
       }

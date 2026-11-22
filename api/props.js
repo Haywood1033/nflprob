@@ -153,6 +153,13 @@ module.exports = async function handler(req, res) {
 
       let pool = tdPoolFromRoster(roster, playerRows, 9, throughWeek)
         || topUsagePlayersForTeamFallback(playerRows, t.abbr, throughWeek);
+      // Back from an absence (no games in the recent window, a real role this season): always in,
+      // projected from the season (lib/roster-pool.js returningPlayers).
+      const { returningPlayers } = require('../lib/roster-pool.js');
+      for (const r of [...returningPlayers(roster, playerRows, ['WR', 'TE'], throughWeek, 'targets', 4), ...returningPlayers(roster, playerRows, ['RB'], throughWeek, 'carries', 8)]) {
+        const i = pool.findIndex(c => c.name === r.name);
+        if (i >= 0) pool[i] = r; else pool.push(r);
+      }
 
       // nflverse's own confirmed-starter field (the same one lib/qb-status.js uses) overrides
       // the pool builders' lastWeekPlayed-based QB pick — that signal is blind to a just-
@@ -183,6 +190,7 @@ module.exports = async function handler(req, res) {
 
       for (const candidate of pool) {
         let usage = computePlayerUsage(playerRows, candidate.name, throughWeek, recencyWindow(throughWeek));
+        if (!usage && candidate.returning) usage = computePlayerUsage(playerRows, candidate.name, throughWeek, 18);
         // The confirmed starter coming off the bench (no games in the window): his season instead.
         if (!usage && confirmedQbName && normalizeQbName(candidate.name) === normalizeQbName(confirmedQbName)) usage = computePlayerUsage(playerRows, candidate.name, throughWeek, 18);
         if (!usage) continue;
@@ -195,6 +203,7 @@ module.exports = async function handler(req, res) {
 
         players.push({
           name: candidate.name,
+          returning: candidate.returning ? { lastWeekPlayed: candidate.lastWeekPlayed } : null,
           position: usage.position,
           team: t.name,
           opponent: teamsInGame.find(x => x.abbr !== t.abbr).name,
