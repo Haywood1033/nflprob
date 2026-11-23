@@ -83,3 +83,13 @@ test('optimizer: no kicker or defense captains unless locked there', () => {
   const locked = optimizeLineups(pool, { count: 1, captainLockId: '5', lockedIds: ['5'], noCaptainPositions: ['K', 'DST'] });
   assert.equal(locked[0].captain.id, '5');
 });
+
+test('optimizer: star captain limits captains to the top projected players; a captain lock overrides', () => {
+  const { optimizeLineups } = require('../lib/dfs-optimizer.js');
+  const mk = (i, team, pos, salary, points) => ({ id: String(i), name: 'P' + i, pos, team, salary, points });
+  const pool = [mk(1, 'A', 'QB', 10000, 22), mk(2, 'A', 'WR', 9000, 18), mk(3, 'B', 'QB', 9000, 17), mk(4, 'B', 'WR', 8000, 15), mk(5, 'A', 'TE', 4000, 11),
+    mk(6, 'B', 'TE', 3000, 9), mk(7, 'A', 'RB', 3000, 9), mk(8, 'B', 'RB', 2600, 8), mk(9, 'A', 'WR', 1800, 6), mk(10, 'B', 'WR', 1200, 5), mk(11, 'A', 'K', 4000, 8), mk(12, 'B', 'DST', 3600, 7)];
+  const ls = optimizeLineups(pool, { count: 10, noCaptainPositions: ['K', 'DST'], captainTopN: 4 });
+  assert.ok(ls.length > 0 && ls.every(l => ['1', '2', '3', '4'].includes(l.captain.id)), ls.map(l => l.captain.id).join());
+  assert.equal(optimizeLineups(pool, { count: 1, captainLockId: '9', lockedIds: ['9'], captainTopN: 4 })[0].captain.id, '9');
+});

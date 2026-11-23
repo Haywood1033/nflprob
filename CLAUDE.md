@@ -54,8 +54,13 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   (`noCaptainPositions` in api/lineup-optimizer.js; a captain lock overrides it). The spread
   estimate itself is calibrated (17.1% of 9,204 player-games beat projection + spread) and is
   returned per player as `sd`; `stackDst` stays in the optimizer, off. The best lineups in
-  hindsight have pricier captains ($7,956 vs our $6,601) and more ≤$3,000 punts (0.54 vs 0.32 per
-  lineup, mostly WRs): the next thing worth testing.
+  hindsight have pricier captains ($7,956 vs our $6,601) and more ≤$3,000 punts (0.54 vs 0.32).
+  Tested next (same 370 games, vs no-K/DST captains): star captain = top 4 projected +1.41 best of
+  20 (95% CI +0.71 to +2.13; 176 better / 101 worse; 2025 +1.88, 2026 +0.54; avg lineup +9.2),
+  top 6 +1.05, captain salary ≥ $7,000 +1.36; forcing a ≤$3,000 WR/TE into every lineup −2.5
+  (alone or with a star captain). Shipped `captainTopN: 4` (a captain lock overrides it);
+  `minCaptainSalary` and `cheapReceiver` stay in the optimizer, off. Known cost: a captain the
+  model under-rates misses out (MIN@SF: Mike Evans, back from injury, was 6th).
 - DFS projects QB rushing and RB receiving from plain recent averages (the props tabs use the
   matchup-adjusted models). Only switch DFS after the backtest shows the models are better.
 - DFS availability comes from ESPN's rosters (`makeRosterNote` in `lib/dfs-projections.js`): a

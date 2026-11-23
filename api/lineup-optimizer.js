@@ -40,6 +40,12 @@ module.exports = async function handler(req, res) {
       // 12% / 5% of our captains vs 2% / 3% of the best lineups, and leaving them out raised the
       // best-of-20 lineup by +0.30 points a game (better in 62 games, worse in 39).
       noCaptainPositions: ['K', 'DST'],
+      // Star captain: only the slate's top 4 projected players (excluding K/DST) captain unless one
+      // is locked. Across the same 370 games: best of 20 +1.41 points (95% CI +0.71 to +2.13),
+      // better in 176 games vs worse in 101, positive in both 2025 and 2026; average lineup +9.2.
+      // Forcing a cheap ($3,000-or-less) receiver into every lineup was tested too and was worse
+      // (−2.5), so the optimizer still only picks one when it pays.
+      captainTopN: 4,
     });
 
     if (!lineups.length) {
