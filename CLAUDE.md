@@ -35,6 +35,17 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   Accuracy tab's "Against the book" section measures model miss vs book miss.
 
 - The QB fix relies on ESPN's injury report; if ESPN lags, the app can name an injured starter.
+- DFS review after MIN@SF (2026 week 11, a 35-10 blowout; replayed leak-free on the real salary
+  file): the 20 lineups were near-copies (McCaffrey 16-17/20, Purdy 15/20) because the 35% exposure
+  cap lifted to 60% then 100% whenever the primary tier ran short; captains and forced correlation
+  players ignored it. Mike Evans (back from 4 missed games) was projected 8.7 off one game in the
+  window and scored 25.9. Fixes: the cap holds while value is relaxed (50% for good captains, 100%
+  only as a last resort); a player who missed his team's latest game is projected from his season
+  (backtest, 398 affected player-games: MAE 4.00 → 3.88); built-in DFS calibration
+  (`DEFAULT_DFS_LINES` in `lib/calibration.js`, fitted on 8,270 player-games, each position better
+  on held-out games) applies when the database has none. Replay of that slate: best lineup 85.2 →
+  106.1, median 71.4 → 74.8. One game is noise; the per-player numbers are the evidence. Kicker
+  captains still show up (cheap CPT, studs in FLEX); no rule added without data.
 - DFS projects QB rushing and RB receiving from plain recent averages (the props tabs use the
   matchup-adjusted models). Only switch DFS after the backtest shows the models are better.
 - DFS availability comes from ESPN's rosters (`makeRosterNote` in `lib/dfs-projections.js`): a

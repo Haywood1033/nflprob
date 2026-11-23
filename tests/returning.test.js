@@ -57,3 +57,18 @@ test('returning also covers a player who played inside the window, then missed t
   // Played the latest game → handled by the normal pool, not returning.
   assert.deepEqual(returningPlayers(roster, r2, ['WR', 'TE'], 7, 'targets', 4), []);
 });
+
+test('optimizer: 20 lineups keep every player at or under the exposure cap when the slate allows it', () => {
+  const { optimizeLineups } = require('../lib/dfs-optimizer.js');
+  const mk = (i, team, pos, salary, points) => ({ id: String(i), name: 'P' + i, pos, team, salary, points });
+  const pool = [mk(1, 'A', 'RB', 11800, 26), mk(2, 'A', 'QB', 10800, 20), mk(3, 'B', 'QB', 9400, 17), mk(4, 'B', 'WR', 10400, 14.5), mk(5, 'A', 'TE', 8400, 14.5),
+    mk(6, 'A', 'WR', 6600, 11.6), mk(7, 'B', 'TE', 5400, 11), mk(8, 'A', 'RB', 4800, 9.3), mk(9, 'B', 'K', 5000, 8.8), mk(10, 'A', 'WR', 8000, 12),
+    mk(11, 'B', 'DST', 3600, 8.5), mk(12, 'A', 'DST', 4000, 7.3), mk(13, 'A', 'WR', 3400, 6.7), mk(14, 'B', 'RB', 7200, 9), mk(15, 'B', 'RB', 7000, 5.8),
+    mk(16, 'A', 'K', 4600, 5.8), mk(17, 'B', 'TE', 2400, 5.5), mk(18, 'B', 'WR', 2800, 5.1), mk(19, 'B', 'WR', 3000, 4.3), mk(20, 'A', 'RB', 1400, 3.5),
+    mk(21, 'A', 'WR', 800, 2), mk(22, 'B', 'TE', 1600, 1.5), mk(23, 'B', 'QB', 6000, 3.9), mk(24, 'A', 'WR', 7600, 9)];
+  const lineups = optimizeLineups(pool, { count: 20, maxExposure: 0.35 });
+  assert.equal(lineups.length, 20);
+  const n = {};
+  for (const l of lineups) for (const p of [l.captain, ...l.flex]) n[p.id] = (n[p.id] || 0) + 1;
+  assert.ok(Math.max(...Object.values(n)) <= 10, JSON.stringify(n)); // was 17 of 20 before the cap held
+});
