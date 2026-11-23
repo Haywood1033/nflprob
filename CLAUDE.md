@@ -44,8 +44,18 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   (backtest, 398 affected player-games: MAE 4.00 → 3.88); built-in DFS calibration
   (`DEFAULT_DFS_LINES` in `lib/calibration.js`, fitted on 8,270 player-games, each position better
   on held-out games) applies when the database has none. Replay of that slate: best lineup 85.2 →
-  106.1, median 71.4 → 74.8. One game is noise; the per-player numbers are the evidence. Kicker
-  captains still show up (cheap CPT, studs in FLEX); no rule added without data.
+  106.1, median 71.4 → 74.8. One game is noise; the per-player numbers are the evidence.
+- DFS lineup-strategy backtest (370 games, 2025 wk 3-18 + 2026 wk 3-11, each as a Showdown slate,
+  leak-free projections; salaries approximated from season DK averages because past salary files
+  don't exist, so DK mispricing isn't captured). Measured vs the current optimizer, best of 20:
+  stacking the favorite's DST with its QB/receiver captain +0.09 (noise, 54 better / 52 worse);
+  upside weighting (projection + 0.3 / 0.6 × game-to-game spread) −0.25 / −0.73 (worse); no K/DST
+  captains +0.30 (62 better / 39 worse, 95% CI −0.05 to +0.65): shipped as the Showdown default
+  (`noCaptainPositions` in api/lineup-optimizer.js; a captain lock overrides it). The spread
+  estimate itself is calibrated (17.1% of 9,204 player-games beat projection + spread) and is
+  returned per player as `sd`; `stackDst` stays in the optimizer, off. The best lineups in
+  hindsight have pricier captains ($7,956 vs our $6,601) and more ≤$3,000 punts (0.54 vs 0.32 per
+  lineup, mostly WRs): the next thing worth testing.
 - DFS projects QB rushing and RB receiving from plain recent averages (the props tabs use the
   matchup-adjusted models). Only switch DFS after the backtest shows the models are better.
 - DFS availability comes from ESPN's rosters (`makeRosterNote` in `lib/dfs-projections.js`): a

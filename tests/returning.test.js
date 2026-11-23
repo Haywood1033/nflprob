@@ -72,3 +72,14 @@ test('optimizer: 20 lineups keep every player at or under the exposure cap when 
   for (const l of lineups) for (const p of [l.captain, ...l.flex]) n[p.id] = (n[p.id] || 0) + 1;
   assert.ok(Math.max(...Object.values(n)) <= 10, JSON.stringify(n)); // was 17 of 20 before the cap held
 });
+
+test('optimizer: no kicker or defense captains unless locked there', () => {
+  const { optimizeLineups } = require('../lib/dfs-optimizer.js');
+  const mk = (i, team, pos, salary, points) => ({ id: String(i), name: 'P' + i, pos, team, salary, points });
+  const pool = [mk(1, 'A', 'QB', 10000, 20), mk(2, 'A', 'WR', 9000, 16), mk(3, 'B', 'QB', 9000, 18), mk(4, 'B', 'WR', 8000, 14), mk(5, 'A', 'K', 4000, 9),
+    mk(6, 'B', 'K', 4000, 9), mk(7, 'A', 'DST', 3600, 8), mk(8, 'B', 'DST', 3600, 8), mk(9, 'A', 'TE', 5000, 10), mk(10, 'B', 'TE', 5000, 9), mk(11, 'A', 'RB', 6000, 12), mk(12, 'B', 'RB', 6000, 11)];
+  const free = optimizeLineups(pool, { count: 10, noCaptainPositions: ['K', 'DST'] });
+  assert.ok(free.length > 0 && free.every(l => !['K', 'DST'].includes(l.captain.pos)));
+  const locked = optimizeLineups(pool, { count: 1, captainLockId: '5', lockedIds: ['5'], noCaptainPositions: ['K', 'DST'] });
+  assert.equal(locked[0].captain.id, '5');
+});

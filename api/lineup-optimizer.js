@@ -36,6 +36,10 @@ module.exports = async function handler(req, res) {
       captainLockId: captainLockId || null,
       excludedIds: Array.isArray(excludedIds) ? excludedIds : [],
       model: projectionData.model,
+      // No kicker or defense captains unless locked there: across 370 replayed games they made
+      // 12% / 5% of our captains vs 2% / 3% of the best lineups, and leaving them out raised the
+      // best-of-20 lineup by +0.30 points a game (better in 62 games, worse in 39).
+      noCaptainPositions: ['K', 'DST'],
     });
 
     if (!lineups.length) {
