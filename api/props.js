@@ -94,6 +94,35 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({ week, year, games: await propLinesReport(sched, fetchTeamRoster) });
   }
 
+  // ?view=player&name=…: what the app knows about one player this week (ESPN roster entry, stats
+  // name, games this season, whether he counts as returning), for checking why he's missing.
+  if (req.query.view === 'player' && req.query.name) {
+    const cur = req.query.week ? null : await fetchCurrentWeek();
+    const wk = Number(req.query.week || cur?.week), yr = req.query.year ? seasonFromQuery(req.query) : (cur?.year || seasonFromQuery(req.query));
+    const { statsName, findHistoricalTeam, returningPlayers } = require('../lib/roster-pool.js');
+    const { getRosterEntry } = require('../lib/roster.js');
+    const [sched, rows] = await Promise.all([fetchWeekSchedule(yr, wk), fetchPlayerWeekStats(yr)]);
+    const abbrs = [...new Set((sched || []).flatMap(g => [g.homeAbbr, g.awayAbbr]))];
+    const rosters = Object.fromEntries(await Promise.all(abbrs.map(async a => [a, await fetchTeamRoster(a)])));
+    const hits = Object.entries(rosters).map(([a, r]) => [a, r && getRosterEntry(r, req.query.name)]).filter(([, e]) => e);
+    const out = { week: wk, year: yr, name: req.query.name, playingThisWeek: abbrs.length, espn: hits.map(([a, e]) => ({ team: a, displayName: e.displayName, position: e.position, injuryStatus: e.injuryStatus, ruledOut: e.definitelyOut, rosterGroup: e.statusGroup })) };
+    if (!hits.length) out.problem = "not found on the ESPN roster of any team playing this week (practice squad, IR group name mismatch, or his team is on bye)";
+    const [abbr, entry] = hits[0] || [];
+    const sname = entry && rows ? statsName(rows, entry.displayName, entry.position) : null;
+    out.statsName = sname;
+    if (sname) {
+      const team = findHistoricalTeam(rows, sname);
+      const mine = rows.filter(r => r.player_display_name === sname && r.season_type === 'REG').sort((a, b) => a.week - b.week);
+      out.statsTeam = team;
+      out.games = mine.map(r => ({ week: Number(r.week), team: r.team, pos: r.position, targets: +r.targets || 0, carries: +r.carries || 0, recYds: +r.receiving_yards || 0, rushYds: +r.rushing_yards || 0 }));
+      out.teamLatestWeek = Math.max(...rows.filter(r => r.team === team && r.season_type === 'REG' && Number(r.week) <= wk - 1).map(r => Number(r.week)));
+      const one = { [entry.displayName.toLowerCase()]: entry };
+      const ret = returningPlayers(one, rows, [entry.position], wk - 1, entry.position === 'RB' ? 'carries' : 'targets', entry.position === 'RB' ? 8 : 4);
+      out.countsAsReturning = ret[0] || false;
+    } else if (entry) out.problem = 'on the ESPN roster but no matching name in the season stats';
+    return res.status(200).json(out);
+  }
+
   const week = req.query.week;
   const year = seasonFromQuery(req.query);
   if (!week) return res.status(400).json({ error: 'week query param required, e.g. ?week=1' });

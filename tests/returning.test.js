@@ -46,3 +46,14 @@ test('DFS: a returner gets a season-based projection, not zero', () => {
   assert.match(returningRoleNote('Mike Evans', 'SF', 'WR'), /week 3/);
   assert.equal(returningRoleNote('Depth Guy', 'SF', 'WR'), null);
 });
+
+test('returning also covers a player who played inside the window, then missed the latest games', () => {
+  const r2 = [...[1, 2, 3, 4, 5, 6, 7].map(w => row('Mike Evans', 'WR', w, 9, 80)),
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(w => row('Jauan Jennings', 'WR', w, 7, 60))];
+  const r = returningPlayers(roster, r2, ['WR', 'TE'], 9, 'targets', 4);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].lastWeekPlayed, 7);
+  assert.equal(r[0].missedShare, 2 / 5); // window weeks 5-9: missed 8 and 9
+  // Played the latest game → handled by the normal pool, not returning.
+  assert.deepEqual(returningPlayers(roster, r2, ['WR', 'TE'], 7, 'targets', 4), []);
+});

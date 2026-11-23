@@ -112,9 +112,12 @@ async function handler(req, res) {
         if (i >= 0) pool[i] = r; else pool.push(r);
       }
       const rawReturnShare = [...returnUsage.values()].reduce((x, u) => x + (u.recentShare ?? 0), 0);
-      const returnShare = Math.min(0.4, rawReturnShare);
-      // The returners' own shares are held to the same cap, so the team's targets still add up.
-      if (rawReturnShare > returnShare) for (const u of returnUsage.values()) if (u.recentShare != null) u.recentShare *= returnShare / rawReturnShare;
+      // The returners' own shares are held to a 40% cap, so the team's targets still add up.
+      if (rawReturnShare > 0.4) for (const u of returnUsage.values()) if (u.recentShare != null) u.recentShare *= 0.4 / rawReturnShare;
+      // Teammates are scaled only for the window games the returner missed: in the games he
+      // played, their shares were already earned alongside him.
+      const missedBy = new Map(returning.map(r => [r.name, r.missedShare]));
+      const returnShare = Math.min(0.4, [...returnUsage.entries()].reduce((x, [n, u]) => x + (u.recentShare ?? 0) * (missedBy.get(n) ?? 1), 0));
       const returnNames = [...returnUsage.keys()];
 
       for (const candidate of pool) {
