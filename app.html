@@ -1786,14 +1786,16 @@ async function dfsFetchProjections() {
   dfsState.projecting = true;
   renderDfsPlayerTable();
   try {
-    const payload = { ...dfsBasePayload(), lineupCount: 1 };
+    // Locks go along: a locked player skips the injury/roster checks (he's playing), so his
+    // projection shows here instead of 0.
+    const payload = { ...dfsBasePayload(), lineupCount: 1, lockedIds: [...dfsState.locked], ...(dfsState.slateType === 'classic' ? {} : { captainLockId: dfsState.captainLock }) };
     const res = await fetch(dfsEndpoint(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await res.json();
     if (Array.isArray(data.players)) {
       const byId = {}; data.players.forEach(p => { byId[p.id] = p; });
       dfsState.players = dfsState.players.map(p => {
         const proj = byId[p.id];
-        return proj ? { ...p, projPoints: proj.points, projModeled: proj.modeled, projLowSample: proj.lowSample, projUnmodeledTeammates: proj.unmodeledTeammates } : p;
+        return proj ? { ...p, projPoints: proj.points, projModeled: proj.modeled, projLowSample: proj.lowSample, projUnmodeledTeammates: proj.unmodeledTeammates, projNote: proj.note, projForced: dfsState.locked.has(p.id) || dfsState.captainLock === p.id } : p;
       });
     }
   } catch (e) { /* non-fatal — see comment above */ }
@@ -1867,13 +1869,16 @@ function renderDfsPlayerTable() {
   document.querySelectorAll('[data-dfs-lock]').forEach(el => el.addEventListener('click', () => {
     const id = el.dataset.dfsLock;
     if (dfsState.locked.has(id)) dfsState.locked.delete(id); else dfsState.locked.add(id);
-    renderDfsPlayerTable();
+    // Locking (or unlocking) a player shown at 0 re-projects: a lock overrides a stale injury status.
+    const pl = dfsState.players.find(x => x.id === id);
+    if (pl && (!(pl.projPoints > 0) || pl.projForced)) dfsFetchProjections(); else renderDfsPlayerTable();
   }));
   document.querySelectorAll('[data-dfs-cpt]').forEach(el => el.addEventListener('click', () => {
     const id = el.dataset.dfsCpt;
     dfsState.captainLock = dfsState.captainLock === id ? null : id;
     if (dfsState.excluded.has(id)) dfsState.excluded.delete(id);
-    renderDfsPlayerTable();
+    const pl = dfsState.players.find(x => x.id === id);
+    if (pl && (!(pl.projPoints > 0) || pl.projForced)) dfsFetchProjections(); else renderDfsPlayerTable();
   }));
   document.querySelectorAll('[data-dfs-exclude]').forEach(el => el.addEventListener('click', () => {
     const id = el.dataset.dfsExclude;

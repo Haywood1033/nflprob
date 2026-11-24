@@ -21,7 +21,7 @@ module.exports = async function handler(req, res) {
 
   const start = Date.now();
   try {
-    const projectionData = await buildClassicProjections({ uploadedPlayers: players, year: Number(year) });
+    const projectionData = await buildClassicProjections({ uploadedPlayers: players, year: Number(year), lockedIds: Array.isArray(lockedIds) ? lockedIds : [] });
 
     // A QB who isn't this week's starter keeps his projection (shown, lockable) but only enters the
     // pool when the user locks him in.

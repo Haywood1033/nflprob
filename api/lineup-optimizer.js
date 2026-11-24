@@ -19,7 +19,8 @@ module.exports = async function handler(req, res) {
 
   const start = Date.now();
   try {
-    const projectionData = await buildDfsProjections({ uploadedPlayers: players, year: Number(year), awayAbbr, homeAbbr });
+    // Locked players (and a locked captain) skip the injury/roster checks: the lock says he's playing.
+    const projectionData = await buildDfsProjections({ uploadedPlayers: players, year: Number(year), awayAbbr, homeAbbr, lockedIds: [...(Array.isArray(lockedIds) ? lockedIds : []), ...(captainLockId ? [captainLockId] : [])] });
 
     // A QB who isn't this week's starter keeps his projection (shown, lockable) but only enters the
     // pool when the user locks him in.
