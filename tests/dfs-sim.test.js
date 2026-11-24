@@ -26,6 +26,9 @@ test('lineups: 20 distinct, salary cap, rules respected, same input → same lin
   const sigs = new Set(ls.map(l => l.captain.id + '|' + l.flex.map(p => p.id).sort()));
   assert.equal(sigs.size, ls.length);
   for (const l of ls) {
+    // Every field the Lineup Builder page reads (a missing captainSalary broke the page once).
+    for (const k of ['captainSalary', 'totalSalary', 'totalPoints']) assert.equal(typeof l[k], 'number', k);
+    assert.equal(l.captainSalary, Math.round(l.captain.salary * 1.5));
     assert.ok(Math.round(l.captain.salary * 1.5) + l.flex.reduce((x, p) => x + p.salary, 0) <= 50000);
     assert.ok(['1', '2', '3', '4'].includes(l.captain.id));
     assert.equal(l.flex.length, 5);
