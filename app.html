@@ -1970,7 +1970,7 @@ function renderDfsResults(data) {
     <div class="parlay-hdr"><div class="parlay-title">${lineups.length>1?`Lineup ${idx+1} of ${lineups.length}`:'Optimal Lineup'}${tierBadge(lineup)}<div style="font-size:11px;color:var(--t3);font-weight:400;margin-top:2px">${away} @ ${home}, Week ${week}</div></div>
       <div class="parlay-combined"><div class="parlay-combined-val">${lineup.totalPoints.toFixed(1)}</div><div class="parlay-combined-lbl">Proj. Points</div></div></div>
     ${legHTML(lineup.captain, true, lineup)}
-    ${lineup.flex.map(p => legHTML(p, false, lineup)).join('')}
+    ${[...lineup.flex].sort((a, b) => b.salary - a.salary).map(p => legHTML(p, false, lineup)).join('')}
     ${coreBlockHTML(lineup)}
     <div style="margin-top:10px">
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--t3)"><span>Salary used</span><span>$${lineup.totalSalary.toLocaleString()} / $50,000</span></div>
@@ -2066,7 +2066,7 @@ function renderClassicResults(data) {
       <div class="parlay-leg-detail">$${p.salary.toLocaleString()}${!p.modeled ? ' · recency estimate' : ''}${lineups.length>1?` · in ${exposureCount[p.id]}/${lineups.length} lineups`:''}</div></div>
     <div class="parlay-leg-prob">${p.points.toFixed(1)}pts</div></div>`;
   const lineupCardHTML = (lineup, idx) => {
-    const sorted = [...lineup.players].sort((a, b) => ROSTER_ORDER[a.pos] - ROSTER_ORDER[b.pos]);
+    const sorted = [...lineup.players].sort((a, b) => b.salary - a.salary || ROSTER_ORDER[a.pos] - ROSTER_ORDER[b.pos]); // highest salary first
     return `<div class="parlay-card">
     <div class="parlay-hdr"><div class="parlay-title">${lineups.length>1?`Lineup ${idx+1} of ${lineups.length}`:'Optimal Lineup'}<div style="font-size:11px;color:var(--t3);font-weight:400;margin-top:2px">Week ${week} · ${games.length} game${games.length===1?'':'s'}</div></div>
       <div class="parlay-combined"><div class="parlay-combined-val">${lineup.points.toFixed(1)}</div><div class="parlay-combined-lbl">Proj. Points</div></div></div>
