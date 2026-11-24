@@ -1,5 +1,6 @@
 const { buildDfsProjections } = require('../lib/dfs-projections.js');
 const { optimizeLineups } = require('../lib/dfs-optimizer.js');
+const { simLineups } = require('../lib/dfs-sim.js');
 
 // Single-game Showdown only (Captain + 5 FLEX, one game). A DK "Classic" multi-game slate
 // uses real roster positions (QB/RB/RB/WR/WR/WR/TE/FLEX/DST) and a schedule spanning several
@@ -29,7 +30,7 @@ module.exports = async function handler(req, res) {
     // ~30-40 player Showdown pool), so even 20 stays well within the request budget — the
     // expensive part (ranking every possible captain) happens once regardless of count.
     const count = Math.min(Math.max(Number(lineupCount) || 1, 1), 20);
-    const lineups = optimizeLineups(pool, {
+    const opts = {
       count,
       maxExposure: Number(maxExposure) || 0.35,
       lockedIds: Array.isArray(lockedIds) ? lockedIds : [],
@@ -46,7 +47,21 @@ module.exports = async function handler(req, res) {
       // Forcing a cheap ($3,000-or-less) receiver into every lineup was tested too and was worse
       // (−2.5), so the optimizer still only picks one when it pays.
       captainTopN: 4,
-    });
+    };
+    // Two or more lineups: chosen by simulating the game (lib/dfs-sim.js). On 370 replayed games
+    // the best of 20 rose +2.88 points vs the optimizer (95% CI +2.17 to +3.63; better in 200
+    // games, worse in 104; both seasons) and lineups within 90% of the best possible went from 24%
+    // to 33% of games. One lineup stays the highest-projected build. If the simulation comes up
+    // short of the count, the optimizer's lineups fill the rest.
+    let lineups = count > 1 ? simLineups(pool, opts) : optimizeLineups(pool, opts);
+    if (count > 1 && lineups.length < count) {
+      const have = new Set(lineups.map(l => l.captain.id + '|' + l.flex.map(p => p.id).sort().join(',')));
+      for (const l of optimizeLineups(pool, opts)) {
+        if (lineups.length >= count) break;
+        const k = l.captain.id + '|' + l.flex.map(p => p.id).sort().join(',');
+        if (!have.has(k)) { have.add(k); lineups.push(l); }
+      }
+    }
 
     if (!lineups.length) {
       return res.status(200).json({

@@ -61,6 +61,22 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   (alone or with a star captain). Shipped `captainTopN: 4` (a captain lock overrides it);
   `minCaptainSalary` and `cheapReceiver` stay in the optimizer, off. Known cost: a captain the
   model under-rates misses out (MIN@SF: Mike Evans, back from injury, was 6th).
+- DFS game context (`lib/dfs-game-context.js`): implied points now come from the Vegas implied
+  team totals when a line exists (spread + total), else the Slate tab's model context (QB status,
+  rest, weather (live: kickoff forecast), game calibration, neutral site). Measured on the 370-game
+  replay: player average miss 4.575 → 4.562 with full Vegas weight (25/50/75% in between), lineups
+  unchanged (−0.01 best of 20); the model context alone was slightly worse for lineups (−0.28).
+  The backtest uses the same context; `DEFAULT_DFS_LINES` refit on it (every position better than
+  DK's season averages: QB 7.00 vs 7.19 MAE, RB 4.69 vs 4.73, WR 4.57 vs 4.71, TE 3.79 vs 3.88).
+- DFS simulation (`lib/dfs-sim.js`), the Showdown default for 2+ lineups: each player's outcome =
+  projection + spread × a correlated normal draw (`CORRELATION`, measured on the replay: QB-own WR
+  +0.25, QB-own TE +0.22, QB-QB +0.22, DST vs opposing QB −0.37, DST-own K +0.21, …; stable across
+  seasons); candidates = the best lineup in each of 150 simulated games + the optimizer's; pick 20
+  that between them are within 5% of the top in the most of 1,500 fresh simulated games, under the
+  exposure cap. Replay with correlations from the other season: best of 20 106.41 → 109.29 (+2.88,
+  95% CI +2.17 to +3.63; 200 better / 104 worse; 2025 +2.01, 2026 +4.50), within 90% of the best
+  possible 24.1% → 32.7%; average lineup 84.9 → 83.6 (by design). Without correlations +2.16;
+  letting any captain in +1.80 (so the top-4 rule stays). One lineup stays the plain optimizer.
 - DFS projects QB rushing and RB receiving from plain recent averages (the props tabs use the
   matchup-adjusted models). Only switch DFS after the backtest shows the models are better.
 - DFS availability comes from ESPN's rosters (`makeRosterNote` in `lib/dfs-projections.js`): a
