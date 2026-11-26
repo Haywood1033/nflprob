@@ -77,6 +77,11 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   95% CI +2.17 to +3.63; 200 better / 104 worse; 2025 +2.01, 2026 +4.50), within 90% of the best
   possible 24.1% → 32.7%; average lineup 84.9 → 83.6 (by design). Without correlations +2.16;
   letting any captain in +1.80 (so the top-4 rule stays). One lineup stays the plain optimizer.
+  Tested, not shipped: the spread is too narrow for K, QB and DST (24.5% / 21.6% / 20.5% of
+  player-games beat projection + spread vs ~16% expected; RB/WR/TE are right). Widening them by
+  position (K ×1.49, QB ×1.25, DST ×1.30, fitted on the other season) made the simulation worse:
+  best of 20 −0.57 (95% CI −1.18 to +0.03; 113 better / 141 worse; 2025 +0.04, 2026 −1.71); with
+  400 candidate games −0.25, with a 3% margin −0.35. The spread stays as is.
 - DFS projects QB rushing and RB receiving from plain recent averages (the props tabs use the
   matchup-adjusted models). Only switch DFS after the backtest shows the models are better.
 - DFS availability comes from ESPN's rosters (`makeRosterNote` in `lib/dfs-projections.js`): a
