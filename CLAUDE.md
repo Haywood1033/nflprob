@@ -86,7 +86,10 @@ ufcprob), each its own repo and Vercel project, sharing the same stack and desig
   matchup-adjusted models). Only switch DFS after the backtest shows the models are better.
 - DFS availability comes from ESPN's rosters (`makeRosterNote` in `lib/dfs-projections.js`): a
   QB/RB/WR/TE/K who isn't on his team's ESPN roster (practice squad, released) or is Out / IR
-  projects zero with the reason. A roster that fails to load checks nothing. A practice-squad
+  projects zero with the reason. A roster that fails to load checks nothing.
+  Second check (`lib/nflverse-roster.js`): nflverse's roster file (the league's own status, daily)
+  zeroes a player it lists as practice squad (DEV) or released (CUT) for that team, because ESPN
+  can lag: 2026 wk 12, Elijah Mitchell (PHI) was still active on ESPN, practice squad since wk 11. A practice-squad
   player elevated for the game shows zero until ESPN moves him; the owner can lock him in.
 - Players back from an absence (`returningPlayers` in `lib/roster-pool.js`): active on ESPN's
   roster, a real role this season (WR/TE 4+ targets, RB 8+ carries a game), missed the team's

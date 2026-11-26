@@ -75,3 +75,24 @@ test('DFS: a player missing from the ESPN roster (practice squad) or listed Out 
   assert.equal(note('Anyone', 'NYJ', 'WR'), null);          // roster didn't load: no check
   assert.equal(note('Anyone', 'TEN', 'WR'), null);          // roster looks incomplete: no check
 });
+
+test('DFS: the league roster catches a practice-squad move ESPN missed', () => {
+  const { makeRosterNote } = require('../lib/dfs-projections.js');
+  const { indexRoster } = require('../lib/nflverse-roster.js');
+  const rows = [];
+  for (let i = 0; i < 45; i++) rows.push({ team: 'PHI', full_name: 'Filler ' + i, status: 'ACT', position: 'LB', week: '12' });
+  rows.push({ team: 'PHI', full_name: 'Elijah Mitchell', status: 'ACT', position: 'RB', week: '9' });
+  rows.push({ team: 'PHI', full_name: 'Elijah Mitchell', status: 'DEV', position: 'RB', week: '12' });
+  rows.push({ team: 'PHI', full_name: 'Called Up', status: 'DEV', position: 'WR', week: '12' });
+  rows.push({ team: 'PHI', full_name: 'Called Up', status: 'ACT', position: 'WR', week: '12' });
+  rows.push({ team: 'PHI', full_name: 'Kenneth Walker', status: 'CUT', position: 'RB', week: '12' });
+  const league = indexRoster(rows);
+  const espn = {}; for (let i = 0; i < 40; i++) espn['x' + i] = { displayName: 'X' + i, position: 'LB' };
+  Object.assign(espn, { 'elijah mitchell': { displayName: 'Elijah Mitchell', position: 'RB' }, 'called up': { displayName: 'Called Up', position: 'WR' } });
+  const note = makeRosterNote({ PHI: espn }, league);
+  assert.match(note('Elijah Mitchell', 'PHI', 'RB'), /practice squad/);
+  assert.equal(note('Called Up', 'PHI', 'WR'), null);
+  assert.match(makeRosterNote({}, league)('Kenneth Walker III', 'PHI', 'RB'), /released/); // suffix; ESPN didn't load
+  assert.equal(makeRosterNote({ PHI: espn }, null)('Elijah Mitchell', 'PHI', 'RB'), null); // league file didn't load
+  assert.equal(makeRosterNote({}, indexRoster(rows.slice(-3)))('Kenneth Walker', 'PHI', 'RB'), null); // thin listing
+});
